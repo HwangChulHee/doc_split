@@ -94,7 +94,7 @@
 ## 6. UNCERTAIN 목록
 
 - **라벨+값 융합 라인**: `Loan Term360`, `Note Rate 6.250`, `Position or Title …` 등 — 라벨은 STANDARD, 값은 FILLED이나 추출 라인 단위에서는 분리 불가 (렌더러의 텍스트 레이어 구성 산물)
-- **슬래시 결합 라벨**: `Balloon / Balloon Term`, `Interest Only / Interest Only Term`, `Prepayment Penalty / Prepayment Penalty Term`, `Temporary Interest Rate Buydown / Initial Buydown Rate` (pkg01 p9, pkg02 p24) — blank에서는 다른 라인 구성으로 존재. 표준 라벨의 렌더러별 조판 차이로 보이나 라인 단위 매칭 불가
+- ~~슬래시 결합 라벨~~ → **§10에서 해소**: `Balloon / Balloon Term` 등 4종은 Fannie 판 blank의 텍스트 레이어에 동일 라인으로 존재 — STANDARD로 재판정 (Freddie 판 텍스트 레이어만 라인을 쪼개 놓았던 것)
 - `Country US`, `Housing`, `Revolving`, `Retained`, `Funds`, `Checking Account`, `Cash Gift`, `Relative`, `Other (specify)` 등 — blank의 선택지/열거값과 대응하는 것으로 보이는 짧은 라인. 선택지(표준 어휘)인지 입력값인지 라인만으로는 확정 불가
 - `Date` 단독 라인 (서명란 인근) — blank는 `Date (mm/dd/yyyy)` 형식. 렌더러 생략인지 값 라벨인지 불확정
 
@@ -110,7 +110,7 @@
 
 ## 8. 데이터셋과 공식 양식 간 불일치 표준 문구 (강조)
 
-1. **Section 6 제목 철자 불일치**: 데이터셋(`Acknowledgements`)은 본체 blank(`Acknowledgments`)와 다르다. 단, **GSE 공식 문서끼리도 철자가 갈린다** (Additional Borrower blank는 `Acknowledgements`). 즉 이 제목은 표준 문서 안에서도 표기가 안정적이지 않다.
+1. **Section 6 제목 철자 불일치**: 데이터셋(`Acknowledgements`)은 본체 blank(`Acknowledgments`)와 다르다. 단, **GSE 공식 문서끼리도 철자가 갈린다** (Additional Borrower blank는 `Acknowledgements`). 즉 이 제목은 표준 문서 안에서도 표기가 안정적이지 않다. (Fannie 판 본체도 `Acknowledgments`로 확인 — §10-2)
 2. **blank에만 있는 표준 안내문**: Section 1e/2c의 선택지 열거 목록, `(e.g., Pension, IRA)` 등 예시 문구, `NOTE: Reveal alimony, child support…` 안내문이 데이터셋 렌더링에는 없다 (48개 미출현 표준 라인 중 Additional Borrower 고유분 제외 시 대부분이 이 부류 + 라벨 조판 차이). 상세: `outputs/urla_standard_diff/standard_lines_not_seen.txt`.
 3. **데이터셋에만 있는 비표준 고정 문구**: California Civil Code 1812.30(j) 고지 (pkg01 p8). GSE 표준 텍스트가 아니다.
 4. 푸터 핵심 3종(`Uniform Residential Loan Application`(+접미), `Form 65/1003` 라인, `Effective 1/2021`)과 섹션 제목·상단 식별 블록은 표기 차이(§7) 외 **내용 불일치 없음**.
@@ -126,3 +126,35 @@
 - 주요 섹션: Homeownership Education and Housing Counseling, Language Preference
 
 **pkg01 원본 4종·pkg02 44페이지 어디에도 SCIF 텍스트는 등장하지 않는다** (Form 1103, Supplemental Consumer 등 문구 검색 기준).
+
+---
+
+## 10. Fannie Mae 판 대조 (2026-08-15 추가)
+
+Fannie Mae 공식 페이지에서 동일 컴포넌트를 수동 확보(`data/reference/urla/fanniemae/`, 상세 SOURCES.md)하여
+Freddie 판과 파일·텍스트 수준으로 대조하고, 데이터셋 대조도 양쪽 blank를 합친 표준 세트로 재실행했다.
+
+### 10-1. 파일 수준
+
+| 컴포넌트 | Freddie vs Fannie |
+|---|---|
+| Additional Borrower / Unmarried Addendum / Continuation Sheet | **바이트 동일** (md5 일치) — 두 GSE가 같은 PDF 파일을 배포 |
+| Borrower Information (본체 9p) | 파일 상이. **문구는 동일**, 텍스트 레이어의 라인 구성이 다름 |
+| Lender Loan Information (2p) | 파일 상이. 동상 |
+| Instructions | Fannie 소장본이 Revised 11/2024로 더 최신 (양식 자체는 여전히 Effective 1/2021) |
+| SCIF Form 1103 | 푸터 버전 동일(5/2022), 파일 상이. Freddie 판 텍스트 레이어에 `Who pr ovided it:`(단어 중간 공백) 아티팩트 존재, Fannie 판은 정상 |
+
+### 10-2. GSE 간 안정성이 확인된 미세 표기
+
+- **푸터 구분자**: 두 GSE blank 모두 `Freddie Mac Form 65  •  Fannie Mae Form 1003` (U+2022, 공백 2칸). 데이터셋의 `·`(U+00B7, 공백 1칸)는 **양 GSE 어느 판에도 없는 렌더러 고유 표기**로 확정 (§7 갱신).
+  - 단 Fannie 본체 p1에서는 `•`가 텍스트 레이어상 별도 라인으로 분리되어 추출됨 — 같은 발행처 안에서도 페이지에 따라 추출 결과가 흔들리는 사례.
+- **Section 6 철자**: 두 GSE 본체 blank 모두 `Acknowledgments`(e 없음)로 일치. `Acknowledgements`(e 포함)는 양 GSE 공통 배포본인 Additional Borrower 컴포넌트에만 있음. 데이터셋 본체 페이지는 `Acknowledgements`를 사용 — **양 GSE 본체 blank 어느 쪽과도 다른 표기**임이 확정 (§8-1 갱신).
+
+### 10-3. 데이터셋 재대조 결과 (Freddie+Fannie 합산 표준 세트)
+
+- 미해소 UNMATCHED 라인 120 → **111** (9건 해소). 해소된 9건 전부 Fannie 텍스트 레이어의 라인 구성이 데이터셋과 일치한 경우:
+  - Lender 슬래시 결합 라벨 4종 (`Balloon / Balloon Term`, `Interest Only / …`, `Prepayment Penalty / …`, `Temporary Interest Rate Buydown / Initial Buydown Rate`) + `Leasehold Expiration Date`
+  - Section 7/8 융합 라인 3종 (`Currently serving on active duty with projected expiration date of service/tour`, `Other Hispanic or Latino – Print origin:`, `American Indian or Alaska Native – Print name of enrolled`)
+  - `Other (specify)`
+- 즉 **같은 표준 문구라도 어느 발행처 PDF를 기준으로 라인 매칭하느냐에 따라 판정이 갈린다.** 남은 111건은 입력값·라벨+값 융합·페이지 번호·California 고지 등으로 기존 분류와 동일.
+- Fannie blank에만 있고 데이터셋에 없는 라인 3건 추가 (`Commission $` 등 병합 라인, bullet 없는 푸터 변형) — 전부 텍스트 레이어 아티팩트.
