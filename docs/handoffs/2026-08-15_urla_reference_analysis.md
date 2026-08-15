@@ -41,7 +41,7 @@ data/                      # reference/ 제외 전부 gitignore
 
 | 산출물 | 위치 | 커밋 |
 |---|---|---|
-| 분석 보고서 (사람용, 핵심) | `docs/urla_standard_analysis.md` | ✅ |
+| 분석 보고서 (사람용, 핵심) | `docs/analysis/urla_standard_analysis.md` | ✅ |
 | 대조 raw 결과 (페이지별 분류, 미해소 라인, 미출현 표준 라인) | `outputs/urla_standard_diff/` | ❌ (원문 포함) |
 | 대조 스크립트 (결정론적, 재실행 가능) | `scripts/observe_urla_diff.py` | ✅ |
 | 공식 양식 + 출처 기록 | `data/reference/urla/` | ✅ |
@@ -103,4 +103,4 @@ data/                      # reference/ 제외 전부 gitignore
 - 전략 논의·제안도 의도적으로 전부 배제되어 있음 — 위 사실들에서 전략을 도출하는 것은 다음 단계의 몫
 - 재현: 대조 재실행은 `uv run python scripts/observe_urla_diff.py`, 파싱 재실행은
   `uv run python -m docsplit.parse --data-dir data --out-dir outputs` (reference/는 자동 제외)
-- 상세 근거가 필요하면: `docs/urla_standard_analysis.md` (§1~§10) → `outputs/urla_standard_diff/` (raw) 순으로 볼 것
+- 상세 근거가 필요하면: `docs/analysis/urla_standard_analysis.md` (§1~§10) → `outputs/urla_standard_diff/` (raw) 순으로 볼 것

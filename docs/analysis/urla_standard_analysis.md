@@ -11,21 +11,24 @@
 
 ## 1. 확보한 공식 양식
 
-출처: Freddie Mac ULAD 페이지 (Fannie Mae는 Cloudflare 403으로 접근 불가 → 핸드오프 명시 대안 사용.
-이후 Fannie Mae 판도 수동 확보 — §10). 저장 위치: `data/reference/urla/freddiemac/` 및 `fanniemae/`
-(컴포넌트가 같으면 파일명 동일). 상세 URL·일자·원본 파일명: `data/reference/urla/SOURCES.md`.
+**두 GSE 판 모두 확보**했다. 저장 위치는 `data/reference/urla/freddiemac/`과 `data/reference/urla/fanniemae/`이며,
+같은 컴포넌트는 양쪽에서 같은 파일명을 쓴다 (아래 표의 파일명이 두 디렉토리에 각각 존재).
+상세 URL·일자·다운로드 원본 파일명: `data/reference/urla/SOURCES.md`.
 
-| 파일 | 컴포넌트 | 페이지 | 버전 표기 (푸터) |
+- Freddie Mac 판: ULAD 페이지에서 curl로 확보 (2026-08-15)
+- Fannie Mae 판: 공식 페이지가 Cloudflare 403이라 브라우저에서 수동 확보 (2026-08-15). 양판 대조는 §10
+
+| 파일 (양쪽 공통) | 컴포넌트 | 페이지 | 버전 표기 (푸터) |
 |---|---|---|---|
 | `urla_borrower_information_blank.pdf` | URLA 본체 (Section 1–9) | 9p | `Freddie Mac Form 65  •  Fannie Mae Form 1003` + `Effective 1/2021` |
-| `urla_additional_borrower_blank.pdf` | Additional Borrower | 4p | 동일 |
-| `urla_unmarried_addendum_blank.pdf` | Unmarried Addendum | 1p | 동일 |
+| `urla_additional_borrower_blank.pdf` | Additional Borrower | 4p | 동일 (양 GSE 배포 파일이 바이트 동일) |
+| `urla_unmarried_addendum_blank.pdf` | Unmarried Addendum | 1p | 동일 (바이트 동일) |
 | `urla_lender_loan_information_blank.pdf` | Lender Loan Information (L1–L4) | 2p | 동일 |
-| `urla_continuation_sheet_blank.pdf` | Continuation Sheet | 1p | 동일 |
-| `urla_instructions.pdf` | 작성 지침 (참고) | 15p | `Effective 1/2021` |
-| `scif_form_1103_blank.pdf` | SCIF Form 1103 (참고) | 1p | `Fannie Mae/Freddie Mac Form 1103` + `5/2022` |
+| `urla_continuation_sheet_blank.pdf` | Continuation Sheet | 1p | 동일 (바이트 동일) |
+| `urla_instructions.pdf` | 작성 지침 (참고) | 15p | Freddie 소장본 / Fannie 소장본은 Revised 11/2024 개정판 |
+| `scif_form_1103_blank.pdf` | SCIF Form 1103 (참고) | 1p | `Fannie Mae/Freddie Mac Form 1103` + `5/2022` (양판 동일 버전) |
 
-무결성: 7개 전부 정상 오픈·텍스트 추출 가능. URLA 컴포넌트 5종 모두 `Effective 1/2021` 확인 — 데이터셋과 동일 버전.
+무결성: 14개(7종×2판) 전부 정상 오픈·텍스트 추출 가능. URLA 컴포넌트 5종 모두 양판에서 `Effective 1/2021` 확인 — 데이터셋과 동일 버전.
 
 ## 2. 데이터셋 페이지 ↔ 공식 컴포넌트 매핑
 
@@ -112,7 +115,7 @@
 ## 8. 데이터셋과 공식 양식 간 불일치 표준 문구 (강조)
 
 1. **Section 6 제목 철자 불일치**: 데이터셋(`Acknowledgements`)은 본체 blank(`Acknowledgments`)와 다르다. 단, **GSE 공식 문서끼리도 철자가 갈린다** (Additional Borrower blank는 `Acknowledgements`). 즉 이 제목은 표준 문서 안에서도 표기가 안정적이지 않다. (Fannie 판 본체도 `Acknowledgments`로 확인 — §10-2)
-2. **blank에만 있는 표준 안내문**: Section 1e/2c의 선택지 열거 목록, `(e.g., Pension, IRA)` 등 예시 문구, `NOTE: Reveal alimony, child support…` 안내문이 데이터셋 렌더링에는 없다 (48개 미출현 표준 라인 중 Additional Borrower 고유분 제외 시 대부분이 이 부류 + 라벨 조판 차이). 상세: `outputs/urla_standard_diff/standard_lines_not_seen.txt`.
+2. **blank에만 있는 표준 안내문**: Section 1e/2c의 선택지 열거 목록, `(e.g., Pension, IRA)` 등 예시 문구, `NOTE: Reveal alimony, child support…` 안내문이 데이터셋 렌더링에는 없다 (미출현 표준 라인 51건 — Freddie+Fannie 합산 기준. Additional Borrower 고유분과 텍스트 레이어 아티팩트 제외 시 대부분이 이 부류 + 라벨 조판 차이). 상세: `outputs/urla_standard_diff/standard_lines_not_seen.txt`.
 3. **데이터셋에만 있는 비표준 고정 문구**: California Civil Code 1812.30(j) 고지 (pkg01 p8). GSE 표준 텍스트가 아니다.
 4. 푸터 핵심 3종(`Uniform Residential Loan Application`(+접미), `Form 65/1003` 라인, `Effective 1/2021`)과 섹션 제목·상단 식별 블록은 표기 차이(§7) 외 **내용 불일치 없음**.
 

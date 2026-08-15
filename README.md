@@ -30,7 +30,9 @@ uv run python -m docsplit.parse --data-dir data --out-dir outputs
 ## Layout
 
 - `src/docsplit/` — pipeline code
-- `data/` — input PDFs (gitignored)
+- `scripts/` — one-off observation/analysis scripts
+- `data/` — input PDFs (gitignored except `data/reference/`)
 - `outputs/` — parsing artifacts (gitignored)
 - `results/` — final deliverables (committed)
-- `docs/assignment.md` — assignment description
+- `docs/` — assignment (`assignment.md`), domain notes (`domain_knowledge.md`),
+  analysis reports (`analysis/`), session handoffs (`handoffs/`)
