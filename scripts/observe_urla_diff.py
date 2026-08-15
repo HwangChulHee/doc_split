@@ -26,14 +26,14 @@ import pymupdf
 
 REPO = Path(__file__).resolve().parent.parent
 BLANKS = {
-    "borrower_information": "urla_borrower_information_blank.pdf",
-    "additional_borrower": "urla_additional_borrower_blank.pdf",
-    "unmarried_addendum": "urla_unmarried_addendum_blank.pdf",
-    "lender_loan_information": "urla_lender_loan_information_blank.pdf",
-    "continuation_sheet": "urla_continuation_sheet_blank.pdf",
+    "borrower_information": "freddiemac/urla_borrower_information_blank.pdf",
+    "additional_borrower": "freddiemac/urla_additional_borrower_blank.pdf",
+    "unmarried_addendum": "freddiemac/urla_unmarried_addendum_blank.pdf",
+    "lender_loan_information": "freddiemac/urla_lender_loan_information_blank.pdf",
+    "continuation_sheet": "freddiemac/urla_continuation_sheet_blank.pdf",
     # Fannie Mae copies of the same joint form (text layer differs from Freddie's)
-    "fnm_borrower_information": "fanniemae/URLA-2019-Borrower-v28.pdf",
-    "fnm_lender_loan_information": "fanniemae/URLA-2019-Lender-v28.pdf",
+    "fnm_borrower_information": "fanniemae/urla_borrower_information_blank.pdf",
+    "fnm_lender_loan_information": "fanniemae/urla_lender_loan_information_blank.pdf",
 }
 DATASET = [
     ("pkg01_urla", "outputs/parsed/1003_-_URLA_sample01.jsonl", None),

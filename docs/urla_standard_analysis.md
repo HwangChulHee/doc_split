@@ -11,8 +11,9 @@
 
 ## 1. 확보한 공식 양식
 
-출처: Freddie Mac ULAD 페이지 (Fannie Mae는 Cloudflare 403으로 접근 불가 → 핸드오프 명시 대안 사용).
-상세 URL·일자: `data/reference/urla/SOURCES.md`.
+출처: Freddie Mac ULAD 페이지 (Fannie Mae는 Cloudflare 403으로 접근 불가 → 핸드오프 명시 대안 사용.
+이후 Fannie Mae 판도 수동 확보 — §10). 저장 위치: `data/reference/urla/freddiemac/` 및 `fanniemae/`
+(컴포넌트가 같으면 파일명 동일). 상세 URL·일자·원본 파일명: `data/reference/urla/SOURCES.md`.
 
 | 파일 | 컴포넌트 | 페이지 | 버전 표기 (푸터) |
 |---|---|---|---|
@@ -141,8 +142,14 @@ Freddie 판과 파일·텍스트 수준으로 대조하고, 데이터셋 대조�
 | Additional Borrower / Unmarried Addendum / Continuation Sheet | **바이트 동일** (md5 일치) — 두 GSE가 같은 PDF 파일을 배포 |
 | Borrower Information (본체 9p) | 파일 상이. **문구는 동일**, 텍스트 레이어의 라인 구성이 다름 |
 | Lender Loan Information (2p) | 파일 상이. 동상 |
-| Instructions | Fannie 소장본이 Revised 11/2024로 더 최신 (양식 자체는 여전히 Effective 1/2021) |
+| Instructions | Fannie 소장본이 Revised 11/2024로 더 최신 (양식 자체는 여전히 Effective 1/2021). 개정본이므로 내용 차이 존재 가능 — 상세 diff는 수행하지 않음 |
 | SCIF Form 1103 | 푸터 버전 동일(5/2022), 파일 상이. Freddie 판 텍스트 레이어에 `Who pr ovided it:`(단어 중간 공백) 아티팩트 존재, Fannie 판은 정상 |
+
+**단어 수준 검증 (문구 동일성 확정):** 파일이 다른 3종을 정규화 후 단어 가방(bag-of-words)으로 대조한 결과,
+**표준 문구 차이는 0**. 잔여 차이는 전부 텍스트 레이어 아티팩트다:
+- 본체: Fannie 판에만 `SIGN` 토큰 3개 (서명란 전자서명 버튼의 텍스트 레이어 흔적, p6·p8)
+- Lender: Freddie 판에만 `0.00` 1건 (계산 필드 기본값이 텍스트 레이어에 노출)
+- SCIF: Freddie `pr ovided`(분절) vs Fannie `provided`(정상) — 동일 단어
 
 ### 10-2. GSE 간 안정성이 확인된 미세 표기
 
