@@ -1,0 +1,12 @@
+# data — 커밋 금지
+data/
+input delivery/
+outputs/
+
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
