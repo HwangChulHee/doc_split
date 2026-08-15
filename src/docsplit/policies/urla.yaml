@@ -1,0 +1,116 @@
+# URLA_1003 분류 정책 (docs/classification/urla.md §3–§4, §6)
+# 문구는 정규화 이전의 대표 표기로 적는다. 매칭은 normalize 후 수행된다.
+# 근거: 양 GSE blank (data/reference/urla/), 표준 대조 docs/analysis/urla_standard_analysis.md
+
+type: URLA_1003
+
+# ── [1] 판정 신호 ────────────────────────────────────────────
+# decisive: 단독 확정 (D ≥ 1 → RULE_HIGH)
+decisive:
+  D1:
+    description: "푸터 타이틀 (컴포넌트 접미 변형은 base 문구를 포함하므로 base로 매칭)"
+    phrases:
+      - "Uniform Residential Loan Application"
+  D2:
+    description: "푸터 폼 ID (구분자 ·/•는 normalize에서 통일됨)"
+    phrases:
+      - "Freddie Mac Form 65 · Fannie Mae Form 1003"
+
+# supportive: 조합 판정 (서로 다른 ID S ≥ 2 → RULE_MEDIUM, S = 1 → DEFER_LLM)
+supportive:
+  S1:
+    description: "폼 버전 표기 — 개정 대비 패턴 매칭 (현행 1/2021)"
+    patterns:
+      - 'effective \d{1,2}/\d{4}'
+  S2:
+    description: "상단 식별 블록 — SCIF와 공유하므로 단독 확정 불가. 3문구 전부 필요"
+    require_all:
+      - "To be completed by the Lender:"
+      - "Lender Loan No./Universal Loan Identifier"
+      - "Agency Case No."
+  S3:
+    description: "본체 섹션 제목 (철자 변형 포함)"
+    phrases:
+      - "Section 1: Borrower Information"
+      - "Section 2: Financial Information — Assets and Liabilities"
+      - "Section 3: Financial Information — Real Estate"
+      - "Section 4: Loan and Property Information"
+      - "Section 5: Declarations"
+      - "Section 6: Acknowledgments and Agreements"
+      - "Section 6: Acknowledgements and Agreements"
+      - "Section 7: Military Service"
+      - "Section 8: Demographic Information"
+      - "Section 9: Loan Originator Information"
+  S4:
+    description: "Lender Loan Information 섹션 제목"
+    phrases:
+      - "L1. Property and Loan Information"
+      - "L2. Title Information"
+      - "L3. Mortgage Loan Information"
+      - "L4. Qualifying the Borrower – Minimum Required Funds or Cash Back"
+  S5:
+    description: "번호+표준 라벨 세트 (번호 토큰 단독은 신호 아님 — 전체 문구 매칭)"
+    phrases:
+      - "1a. Personal Information"
+      - "1b. Current Employment/Self-Employment and Income"
+      - "1e. Income from Other Sources"
+      - "2a. Assets – Bank Accounts, Retirement, and Other Accounts You Have"
+      - "2b. Other Assets and Credits You Have"
+      - "2c. Liabilities – Credit Cards, Other Debts, and Leases that You Owe"
+      - "2d. Other Liabilities and Expenses"
+      - "3a. Property You Own"
+      - "4a. Loan and Property Information"
+      - "4b. Other New Mortgage Loans on the Property You are Buying or Refinancing"
+      - "4c. Rental Income on the Property You Want to Purchase"
+      - "4d. Gifts or Grants You Have Been Given or Will Receive for this Loan"
+      - "5a. About this Property and Your Money for this Loan"
+      - "5b. About Your Finances"
+
+# 결합 규칙 (임계값은 조정 대상 아님 — 설계 §3-3)
+combine:
+  decisive_min: 1
+  supportive_min: 2   # 서로 다른 ID 기준. 같은 ID 반복은 1개
+
+# ── subtype 판별 (설계 §3-5) ─────────────────────────────────
+subtypes:
+  default: "main"
+  suffix_map:   # D1 뒤에 붙는 푸터 접미 (normalize 후 부분문자열로 탐지)
+    "— Additional Borrower": "additional_borrower"
+    "— Unmarried Addendum": "unmarried_addendum"
+    "— Continuation Sheet": "continuation_sheet"
+    "— Lender Loan Information": "lender_loan_information"
+  section_hints:  # 접미 없을 때 보조: S3 → 본체, S4 → Lender Info
+    S3: "main"
+    S4: "lender_loan_information"
+
+# ── 인접 문서 배제 (설계 §3-6) ────────────────────────────────
+adjacent_exclusions:
+  scif:
+    description: "SCIF는 상단 식별 블록을 URLA와 공유 — URLA 아님"
+    phrases:
+      - "Supplemental Consumer Information Form"
+      - "Form 1103"
+
+# ── [2] 신호 카드 추출 (설계 §4) ──────────────────────────────
+cards:
+  loan_number_pattern: '\b\d{9}\b'
+  uli_pattern: '\b[a-z0-9]{20,35}\b'   # 20–35 영숫자 (순수 숫자는 코드에서 제외)
+  page_marker_pattern: '(?:page\s*)?(\d{1,3})\s+of\s+(\d{1,3})'
+  name_anchor: "Borrower Name"       # "Borrower Name:" / "Borrower Name(s):" 포함 매칭
+  name_window_pt: { y: 5, x: 320 }   # 앵커와 같은 시각적 라인, 라벨 오른쪽 윈도우
+  printed_codes:                     # 리터럴 라인 일치 — 분류 규칙 아님, 재료 수집
+    - "GURLA20S"
+    - "GURLA20_S"
+    - "(POD)"
+    - "0718"
+
+# ── [4] 순서 정렬 폴백 (설계 §6 경로 B: 표준 섹션 순서) ─────────
+ordering:
+  subtype_order:
+    - "main"
+    - "additional_borrower"
+    - "unmarried_addendum"
+    - "continuation_sheet"
+    - "lender_loan_information"
+  section_rank_pattern: 'section (\d)'   # S3 매칭 제목에서 섹션 번호 추출
+  l_rank_pattern: 'l(\d)\.'              # S4 매칭 제목에서 L 번호 추출
