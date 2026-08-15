@@ -40,7 +40,11 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, default=Path("outputs"))
     args = parser.parse_args()
 
-    pdf_paths = sorted(args.data_dir.glob("*.pdf"))
+    # recurse into subdirs (packages/, ground_truth/) but skip reference/ —
+    # public blank forms are comparison material, not task data
+    pdf_paths = sorted(
+        p for p in args.data_dir.rglob("*.pdf") if "reference" not in p.parts
+    )
     if not pdf_paths:
         raise SystemExit(f"no PDFs found in {args.data_dir}")
 

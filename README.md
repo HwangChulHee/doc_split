@@ -12,7 +12,11 @@ then groups pages into documents.
 uv sync
 ```
 
-Place the provided PDFs in `data/` (original filenames, not committed).
+Place the provided PDFs under `data/` (original filenames, not committed):
+
+- `data/packages/` — shuffled input packages
+- `data/ground_truth/` — original per-document PDFs (answer key for package 01)
+- `data/reference/` — public blank forms (committed; see `data/reference/urla/SOURCES.md`)
 
 ## Usage
 
