@@ -138,16 +138,33 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         }
         | set((policy.get("subtypes", {}).get("suffix_map") or {}).values())
     )
+    llm_cfg = policy.get("llm", {})
+    # Some subgroups carry no rule signal by nature rather than by omission
+    # (income_doc.md §1: a P&L scores zero on a 32-probe vocabulary). A policy
+    # can opt into sending those pages to the LLM too.
+    llm_grades = {"DEFER_LLM"}
+    if llm_cfg.get("classify_on_no_signal"):
+        llm_grades.add("NO_SIGNAL")
+
     for c in classifications:
-        if c["grade"] != "DEFER_LLM" or c["package"] not in scope or llm is None:
+        if c["grade"] not in llm_grades or c["package"] not in scope or llm is None:
             continue
         candidates = c["flags"].get("type_conflict") or [type_name]
+        if llm_cfg.get("offer_rival_types"):
+            # Let the model choose against the types that also claim the page,
+            # instead of only confirming or rejecting this one.
+            candidates = sorted(set(candidates) | set(c["flags"].get("rival_grades", {})))
+        if c["grade"] == "NO_SIGNAL":
+            # Nothing claimed this page, so narrowing the choice to one type
+            # would be arbitrary. OTHER is reachable only here — it has no
+            # policy file by design (income_doc handoff §4).
+            candidates = all_types
         parsed = llm.complete_json(
             stage="classify_page",
             prompt_name="classify_page",
             variables={
                 "candidate_types": ", ".join(candidates),
-                "reason": "TYPE_CONFLICT" if c["flags"].get("type_conflict") else "DEFER_LLM",
+                "reason": "TYPE_CONFLICT" if c["flags"].get("type_conflict") else c["grade"],
                 "signal_summary": json.dumps(c["signals"], ensure_ascii=False),
                 "subtype_options": ", ".join(subtype_options) or "(없음)",
                 "page_text": pages_by_pkg[c["package"]][c["page"]],
@@ -157,10 +174,12 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         if parsed.get("type") == type_name:
             c["type"], c["grade"] = type_name, "LLM"
             c["subtype"] = c["subtype"] or parsed.get("subtype")
-        elif parsed.get("type") == "UNRESOLVED":
+        elif parsed.get("type") in (None, "UNRESOLVED"):
             c["grade"] = "LLM_UNRESOLVED"
         else:
-            c["type"], c["grade"] = None, "LLM"
+            # Includes OTHER, which is a verdict rather than a fallback: no
+            # policy file exists for it by design (income_doc handoff §4).
+            c["type"], c["grade"] = parsed.get("type"), "LLM"
 
     # ── [1b] VLM: pages with no text layer at all ─────────────
     # Rendering carries the page rotation, so no separate correction is needed.
@@ -256,6 +275,7 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         universal_only=universal_only.get(gt_label) if policy.get("vendors") else None,
         gt_exclude_source_pages=verify_cfg.get("gt_exclude_source_pages"),
         instance_expectations=verify_cfg.get("instance_expectations"),
+        require_final_type=verify_cfg.get("require_final_type", False),
         markers_by_page={
             pkg: {c.page: [(m["n"], m["y"]) for m in c.page_marker_candidates] for c in cards}
             for pkg, cards in cards_by_pkg.items()

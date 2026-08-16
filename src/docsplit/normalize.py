@@ -21,6 +21,11 @@ def normalize(text: str) -> str:
     s = unicodedata.normalize("NFKC", text)
     s = s.replace("•", "·").replace("●", "·")
     s = s.replace("—", "-").replace("–", "-")
+    # NFKC leaves curly quotes alone, so a reference printing Employee's with
+    # U+2019 never matches a document printing it with U+0027
+    # (income_standard_analysis.md §3-4).
+    s = s.replace("‘", "'").replace("’", "'")
+    s = s.replace("“", '"').replace("”", '"')
     s = re.sub(r"\s+", " ", s).strip().lower()
     return s
 

@@ -55,8 +55,16 @@ def load_expected_pages(type_name: str, known_labels: list[str]) -> tuple[dict, 
                 f"({', '.join(known_labels)})에 없습니다 — 해당 기대값은 검증에 쓰이지 않습니다."
             )
             continue
+        # A type whose pages are meant to reach *different* grades declares
+        # expected_paths instead of a flat list; the flat list is then its union
+        # so V2/V3 keep excluding the same pages (income_doc.md §5).
+        paths = entry.get("expected_paths") or {}
+        expected = list(entry.get("expected", []))
+        if paths and not expected:
+            expected = sorted({p for pages in paths.values() for p in pages})
         out[label] = {
-            "expected": list(entry.get("expected", [])),
+            "expected": expected,
+            "expected_paths": {k: list(v) for k, v in paths.items()},
             "undecided": list(entry.get("undecided", [])),
             # image-only pages: judged by the VLM check, never by the rule check
             "expected_vlm": list(entry.get("expected_vlm", [])),
@@ -118,6 +126,7 @@ def run_verifications(
     gt_exclude_source_pages: list[int] | None = None,
     instance_expectations: dict | None = None,
     markers_by_page: dict | None = None,
+    require_final_type: bool = False,
 ) -> list[CheckResult]:
     gt_pages = sorted(r["input_page"] for r in gt_rows if r["document_type"] == type_name)
     gt_by_page = {r["input_page"]: r for r in gt_rows}
@@ -141,39 +150,67 @@ def run_verifications(
 
     results: list[CheckResult] = []
 
-    # ── V1: expected pages reach a rule grade ────────────────
-    targets = [(gt_label, p, primary.get(p)) for p in v1_gt_pages]
-    for label, entry in expected_pages.items():
-        pages = _by_page(classifications, label)
-        targets += [(label, p, pages.get(p)) for p in entry["expected"]]
-    v1_fail = []
-    for label, page, c in targets:
-        grade = c["grade"] if c else "MISSING"
-        if grade not in ("RULE_HIGH", "RULE_MEDIUM"):
-            v1_fail.append(
-                {"package": label, "page": page, "grade": grade,
-                 "signals": c and c.get("signals"), "matches": c and c.get("matches")}
+    # ── V1: expected pages take their intended path ──────────
+    path_specs = {lb: e["expected_paths"] for lb, e in expected_pages.items() if e["expected_paths"]}
+    if path_specs:
+        v1_fail, total = [], 0
+        for label, spec in sorted(path_specs.items()):
+            pages = _by_page(classifications, label)
+            for want, page_list in sorted(spec.items()):
+                for page in page_list:
+                    total += 1
+                    c = pages.get(page)
+                    got = c["rule_grade"] if c else "MISSING"
+                    if got != want.upper():
+                        v1_fail.append({
+                            "package": label, "page": page,
+                            "expected_path": want.upper(), "got": got,
+                            "signals": c and c.get("signals"),
+                            "flags": c and c.get("flags"),
+                        })
+        results.append(
+            CheckResult(
+                name(1), not v1_fail,
+                f"{type_name} 기대 {total}p 중 {total - len(v1_fail)}p 가 의도한 경로로 감 "
+                "(유형마다 도달 등급이 다른 명세 — 전부 RULE_HIGH가 기준이 아님)",
+                v1_fail,
             )
-    per_pkg = {}
-    for label, page, c in targets:
-        tot, ok = per_pkg.get(label, (0, 0))
-        reached = bool(c) and c["grade"] in ("RULE_HIGH", "RULE_MEDIUM")
-        per_pkg[label] = (tot + 1, ok + (1 if reached else 0))
-    breakdown = ", ".join(f"pkg{lb} {ok}/{tot}" for lb, (tot, ok) in sorted(per_pkg.items()))
-    results.append(
-        CheckResult(
-            name(1), not v1_fail,
-            f"{type_name} 기대 {len(targets)}p 중 {len(targets) - len(v1_fail)}p "
-            f"RULE_HIGH/MEDIUM 도달 ({breakdown})",
-            v1_fail,
         )
-    )
+    else:
+        targets = [(gt_label, p, primary.get(p)) for p in v1_gt_pages]
+        for label, entry in expected_pages.items():
+            pages = _by_page(classifications, label)
+            targets += [(label, p, pages.get(p)) for p in entry["expected"]]
+        v1_fail = []
+        for label, page, c in targets:
+            grade = c["grade"] if c else "MISSING"
+            if grade not in ("RULE_HIGH", "RULE_MEDIUM"):
+                v1_fail.append(
+                    {"package": label, "page": page, "grade": grade,
+                     "signals": c and c.get("signals"), "matches": c and c.get("matches")}
+                )
+        per_pkg = {}
+        for label, page, c in targets:
+            tot, ok = per_pkg.get(label, (0, 0))
+            reached = bool(c) and c["grade"] in ("RULE_HIGH", "RULE_MEDIUM")
+            per_pkg[label] = (tot + 1, ok + (1 if reached else 0))
+        breakdown = ", ".join(f"pkg{lb} {ok}/{tot}" for lb, (tot, ok) in sorted(per_pkg.items()))
+        results.append(
+            CheckResult(
+                name(1), not v1_fail,
+                f"{type_name} 기대 {len(targets)}p 중 {len(targets) - len(v1_fail)}p "
+                f"RULE_HIGH/MEDIUM 도달 ({breakdown})",
+                v1_fail,
+            )
+        )
 
     # ── counter-examples: pages of another type ──────────────
     others: list[tuple[str, int, dict]] = [
         (gt_label, p, c) for p, c in primary.items() if p not in set(gt_pages)
     ]
     for label, entry in expected_pages.items():
+        if label == gt_label:
+            continue  # already covered above via the answer key
         skip = set(entry["expected"]) | set(entry["undecided"]) | set(entry["expected_vlm"])
         others += [(label, p, c) for p, c in _by_page(classifications, label).items() if p not in skip]
 
@@ -290,6 +327,33 @@ def run_verifications(
                     "pages_missed": [p for p in v1_gt_pages if p not in reached],
                     "grade_distribution": by_grade,
                 },
+            )
+        )
+
+    # ── V6 (final type): rule + LLM together land on this type ──
+    # A page can legitimately reach the type through the LLM rather than the
+    # rules, so this asks about the end state, not the path.
+    if require_final_type:
+        final_fail = []
+        for label, entry in sorted(expected_pages.items()):
+            pages = _by_page(classifications, label)
+            for page in entry["expected"]:
+                c = pages.get(page)
+                if c is None or c.get("type") != type_name:
+                    final_fail.append({
+                        "package": label, "page": page,
+                        "rule_grade": c and c.get("rule_grade"),
+                        "final_grade": c and c.get("grade"),
+                        "got_type": c.get("type") if c else None,
+                        "llm": c.get("llm") if c else None,
+                    })
+        total_final = sum(len(e["expected"]) for e in expected_pages.values())
+        results.append(
+            CheckResult(
+                name(6), not final_fail,
+                f"기대 {total_final}p 가 최종적으로 {type_name} 으로 확정 "
+                f"({total_final - len(final_fail)}p 성공)",
+                final_fail,
             )
         )
 

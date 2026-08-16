@@ -1,0 +1,178 @@
+# INCOME_DOC 분류 정책 (docs/classification/income_doc.md §2, §7)
+#
+# 근거: docs/analysis/income_standard_analysis.md — 이 보고서에서 확인되지 않은 문구는 넣지 않는다.
+# 매칭은 normalize(NFKC→대시·불릿·인용부호 통일→공백 축약→소문자) 후 수행된다.
+#
+# 이 유형의 특수성 (설계 §1): INCOME은 단일 문서가 아니라 "소득 증빙 기능"의 열린
+# 카테고리다. **INCOME 공통 신호는 존재하지 않음이 측정으로 확인됐다** — 소득 어휘가
+# INCOME 문서보다 URLA 신청서에 더 많다 (분석 §9). 그래서 규칙은 하위군별로 세운다.
+#
+# 명칭 주의: 고용검증 제품의 동정이 UNCERTAIN이므로(분석 §6-2 — 제품명 부재, 발행
+# CRA가 다른 회사) 제품명을 쓰지 않고 `employment_verification` 으로 통일한다.
+
+type: INCOME_DOC
+
+# ── universal — 하위군별 ─────────────────────────────────────
+universal:
+  decisive:
+    I-D1:
+      layer: normative
+      description: >
+        IRS transcript 헤더 조합 — 고지문 AND 발행 기관명. 고지문 단독을 결정적으로
+        하지 않은 이유는 껍데기 페이지(고지문만 남고 기관명·내용이 없는 장)를
+        결정적으로 잡는 것이 과하기 때문이다. 단독은 I-S1로 따로 등록한다 (설계 §2-1).
+        근거: 분석 §2-2 — transcript 5종 전체를 관통하는 골격.
+      require_all_any:
+        - ["This Product Contains Sensitive Taxpayer Data"]
+        - ["Internal Revenue Service", "United States Department of the Treasury"]
+    I-D2:
+      layer: normative
+      description: >
+        transcript 제목. irs.gov 공식 5종 명칭(분석 §2-1)이며, 제목 자체가
+        유형과 하위군을 동시에 지시한다.
+      phrases:
+        - "Wage and Income Transcript"
+        - "Tax Return Transcript"
+        - "Tax Account Transcript"
+        - "Record of Account Transcript"
+        - "Verification of Non-filing Letter"
+
+  supportive:
+    I-S1:
+      layer: normative
+      description: >
+        고지문 단독 — I-D1이 성립하지 않는 껍데기 페이지의 잔여 신호.
+        분석 §4: 99자짜리 페이지에 남은 유형 지시 신호가 이 한 줄뿐이었다.
+      phrases:
+        - "This Product Contains Sensitive Taxpayer Data"
+    I-S2:
+      layer: normative
+      description: >
+        transcript 필드 라벨 2종 이상. **판마다 라벨이 교체됨이 확인**되어
+        (SSN Provided↔TIN Provided, Tax Period Ending↔Requested — 분석 §2-4)
+        변형을 병기하고 조합 조건을 건다. 단독 라벨은 신호로 쓰지 않는다.
+      min_matches: 2
+      phrases:
+        - "Request Date:"
+        - "Response Date:"
+        - "Tracking Number:"
+        - "Tax Period Requested:"
+        - "Tax Period Ending:"
+        - "TIN Provided:"
+        - "SSN Provided:"
+        - "Customer File Number:"
+    I-S3:
+      layer: domain
+      description: >
+        세무 특이어 3종 이상. 교차 오염 측정(분석 §9)에서 **INCOME 전용으로 확인된
+        어휘만** 골랐다. `Income`·`Employer` 단독은 URLA에 6~7p 걸리므로 금지.
+        `EIN` 약어 단독도 제외했다 — 부분 문자열 매칭이 일반 단어 내부에서
+        성립해 버린다(예: b-EIN-g). 정식 명칭만 쓴다.
+      min_matches: 3
+      phrases:
+        - "Wages, Tips and Other Compensation"
+        - "Federal Income Tax Withheld"
+        - "Medicare Wages"
+        - "Social Security Wages"
+        - "Employer Identification Number"
+        - "Form W-2 Wage and Tax Statement"
+    I-S4:
+      layer: domain
+      description: >
+        손익 어휘 2종 이상. **미관찰 대비 — 데이터셋 검증 불가.**
+        데이터셋의 P&L 표본에는 이 계열 어휘가 32종 프로브 중 0건이다(분석 §8-1).
+        근거는 Fannie B3-3.7-04이 P&L에 요구하는 내용 3요소(수입·비용·순이익)이며,
+        형식 표준은 존재하지 않음이 같은 문서로 확인됐다.
+      min_matches: 2
+      phrases:
+        - "Profit and Loss"
+        - "Net Income"
+        - "Gross Receipts"
+        - "Total Expenses"
+        - "Year to Date"
+    I-S5:
+      layer: normative
+      description: >
+        미관찰 IRS 양식 식별자. **미관찰 대비 — 데이터셋 검증 불가.**
+        IRS blank 5종에서 수집(분석 §10). blank 1쪽이 안내문 중심이라 준거로서
+        약하다는 점도 같은 절에 기록돼 있다.
+      phrases:
+        - "OMB No. 1545-0029"        # W-2
+        - "OMB No. 1545-0074"        # 1040
+        - "OMB No. 1545-0115"        # 1099-MISC
+        - "OMB No. 1545-0116"        # 1099-NEC
+        - "U.S. Individual Income Tax Return"
+        - "IVES Request for Transcript of Tax Return"
+
+# ── vendors — 고용검증 산출물 ────────────────────────────────
+# 설계 §7은 credit_report.yaml의 xactus 블록에 cross_type_signals를 두는 안과
+# 여기에 중복 등록하는 안 중 단순한 쪽을 고르라고 했다. **중복 등록을 택했다** —
+# cross_type_signals는 "다른 정책 파일의 블록을 읽어 다른 유형에 기여시키는" 엔진
+# 기능이 필요해 판정 경로가 두 갈래로 갈리는 반면, 중복 등록은 기존 엔진 그대로다.
+#
+# ⚠️ 아래 identity 문구는 policies/credit_report.yaml 의 xactus identity와 **동일한
+# 복붙**이다. 한쪽을 고치면 다른 쪽도 고쳐야 한다.
+vendors:
+  xactus:
+    identity:
+      layer: vendor
+      description: "credit_report.yaml 의 xactus identity와 동일 (복붙 — 위 주석 참조)"
+      phrases:
+        - "XACTUS"
+        - "370 Reed Rd., Suite 100 Broomall, PA 19008"
+        - "370 REED RD., SUITE 100, BROOMALL, PA 19008"
+
+    decisive:
+      X-EV1:
+        layer: vendor
+        description: >
+          고용검증 조회 결과 라벨 조합. `Record Available:` 은 벤더 샘플 표기이고
+          `Employment Record Available:` 은 데이터셋 표기다(분석 §6-2) — 둘 다 등록한다.
+          두 번째 그룹은 분석 §6-1에서 샘플과 일치가 확인된 12종 중에서만 골랐다.
+          (설계 §2-2가 예시한 `Employer Name`/`Employment Status`/`Verification Type`은
+          분석 보고서에 없는 문구라 채택하지 않았다.)
+        require_all_any:
+          - ["Record Available:", "Employment Record Available:"]
+          - ["Borrower:", "Co-Borrower:", "Client Name:"]
+
+    subtypes:
+      employment_verification:
+        description: "제품 동정 UNCERTAIN — 중립 명칭 (설계 §3-3)"
+        via: X-EV1
+
+combine:
+  decisive_min: 1
+  supportive_min: 2
+  vendor_decisive_requires_identity: true
+
+# ── [2] 신호 카드 (설계 §2-4 — 규칙 미채택 신호가 여기 모인다) ──
+cards:
+  id_patterns:
+    # 전달 벤더 스탬프의 값들. 분류 신호가 아니라 그룹핑 재료다 (분석 §3-1).
+    order_token: '\b(?=[a-z0-9]{10}\b)(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{10}\b'
+    masked_ssn: '\bxxx-xx-\d{4}\b'
+    masked_ein: '\bxx-xxx\d{4}\b'
+    numeric_id: '\b\d{8,10}\b'
+  date_patterns:
+    - '\b\d{2}-\d{2}-\d{4}\b'
+    - '\b\d{1,2}/\d{1,2}/\d{2,4}\b'
+  page_marker_pattern: 'page\s+(\d{1,3})\s+of\s+(\d{1,3})'
+  signal_phrase_fields: [I-S2, I-S3]
+
+prompts:
+  group: group_income
+
+# ── LLM 경로 (설계 §1-3, §2-3) ───────────────────────────────
+llm:
+  # P&L·검증 대행 리포트는 규칙 신호가 **없는 것이 정상**이다. 이 유형에서만
+  # NO_SIGNAL 페이지도 LLM으로 보낸다 (다른 유형 정책은 이 키가 없어 기존 동작 유지).
+  classify_on_no_signal: true
+  # 다른 유형이 규칙 등급으로 이 페이지를 함께 주장하면 그 유형도 후보로 제시한다.
+  # 설계 §3-2의 "기능 기준" 판단이 실제로 성립하려면 LLM이 양쪽을 봐야 한다.
+  offer_rival_types: true
+
+# ── 검증 (설계 §5) ───────────────────────────────────────────
+# I-V1은 "전부 RULE_HIGH"가 아니다 — 페이지마다 **의도된 경로가 다르다**.
+# 경로 명세는 config/expected_pages.yaml 의 expected_paths 에 있다.
+verification:
+  require_final_type: true   # I-V6 — 기대 페이지가 최종적으로 INCOME_DOC로 확정되는가

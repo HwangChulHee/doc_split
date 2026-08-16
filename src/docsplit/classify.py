@@ -32,11 +32,18 @@ class PageClassification:
     page: int
     type: str | None
     grade: str
+    # ``grade`` is overwritten when the LLM/VLM resolves the page; this keeps
+    # what the rules alone decided, which is what the path checks verify.
+    rule_grade: str = ""
     subtype: str | None = None
     signals: dict = field(default_factory=dict)
     matches: list = field(default_factory=list)
     flags: dict = field(default_factory=dict)
     llm: dict | None = None  # filled when a deferred page is resolved by the LLM
+
+    def __post_init__(self) -> None:
+        if not self.rule_grade:
+            self.rule_grade = self.grade
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -78,17 +85,23 @@ def classify_page(
     grade, ptype = grade_for(res, policy)
     flags: dict = {}
 
-    # Type competition: only a rival that also reaches RULE_HIGH creates a conflict.
+    # Every rival is scored, so a page that another type also claims is visible
+    # even when the claim is too weak to be a conflict. Only two RULE_HIGH
+    # claims are a conflict; the rest is recorded for the LLM to weigh.
+    rival_grades: dict[str, str] = {}
+    for other in competing_policies or []:
+        if other["type"] == policy["type"]:
+            continue
+        other_res = evaluate_signals(page, other)
+        if other_res.excluded_as:
+            continue
+        other_grade = grade_for(other_res, other)[0]
+        if other_grade in ("RULE_HIGH", "RULE_MEDIUM"):
+            rival_grades[other["type"]] = other_grade
+    if rival_grades:
+        flags["rival_grades"] = dict(sorted(rival_grades.items()))
     if grade == "RULE_HIGH":
-        rivals = []
-        for other in competing_policies or []:
-            if other["type"] == policy["type"]:
-                continue
-            other_res = evaluate_signals(page, other)
-            if other_res.excluded_as:
-                continue
-            if grade_for(other_res, other)[0] == "RULE_HIGH":
-                rivals.append(other["type"])
+        rivals = [t for t, g in rival_grades.items() if g == "RULE_HIGH"]
         if rivals:
             flags["type_conflict"] = sorted([policy["type"], *rivals])
             grade, ptype = "DEFER_LLM", None
