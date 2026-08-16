@@ -52,6 +52,7 @@ class LLMClient:
         self.enabled = enabled
         self.cache_dir = cache_dir
         self.usage_path = usage_path
+        self.this_run: dict[str, dict] = {}
         self._client = None
         if enabled:
             load_dotenv()
@@ -66,21 +67,36 @@ class LLMClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     # ── usage accounting ──────────────────────────────────────
+    # Two scopes: ``this_run`` (reset every process) and ``cumulative`` (grows
+    # across runs). Reports quote this run so a cached re-run reads as 0 calls.
+    @staticmethod
+    def _blank_stage() -> dict:
+        return {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0}
+
     def _record_usage(self, stage: str, cached: bool, usage: dict | None) -> None:
         data = {}
         if self.usage_path.exists():
             data = json.loads(self.usage_path.read_text(encoding="utf-8"))
-        st = data.setdefault(stage, {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0})
-        if cached:
-            st["cache_hits"] += 1
-        else:
-            st["calls"] += 1
-            if usage:
-                st["prompt_tokens"] += usage.get("prompt_tokens", 0)
-                st["completion_tokens"] += usage.get("completion_tokens", 0)
-        data["model"] = self.model
+        cumulative = data.get("cumulative", {})
+
+        for scope in (self.this_run, cumulative):
+            st = scope.setdefault(stage, self._blank_stage())
+            if cached:
+                st["cache_hits"] += 1
+            else:
+                st["calls"] += 1
+                if usage:
+                    st["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                    st["completion_tokens"] += usage.get("completion_tokens", 0)
+
         self.usage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.usage_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.usage_path.write_text(
+            json.dumps(
+                {"model": self.model, "this_run": self.this_run, "cumulative": cumulative},
+                indent=2, ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     # ── main entry ────────────────────────────────────────────
     def complete_json(self, stage: str, prompt_name: str, variables: dict[str, str]) -> dict:
