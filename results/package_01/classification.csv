@@ -1,7 +1,7 @@
 page,page_display,type,subtype,grade,rule_grade,decided_by
 0,1,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 1,2,URLA_1003,lender_loan_information,RULE_HIGH,RULE_HIGH,rule
-2,3,CREDIT_REPORT,consumer_letter,LLM,DEFER_LLM,llm
+2,3,CREDIT_REPORT,cover,LLM,DEFER_LLM,llm
 3,4,URLA_1003,main,RULE_HIGH,RULE_HIGH,rule
 4,5,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 5,6,URLA_1003,main,RULE_HIGH,RULE_HIGH,rule
@@ -34,7 +34,7 @@ page,page_display,type,subtype,grade,rule_grade,decided_by
 32,33,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 33,34,TITLE_REPORT,body,RULE_MEDIUM,RULE_MEDIUM,rule
 34,35,URLA_1003,continuation_sheet,RULE_HIGH,RULE_HIGH,rule
-35,36,OTHER,body,LLM,DEFER_LLM,llm
+35,36,INCOME_DOC,body,LLM,DEFER_LLM,llm
 36,37,TITLE_REPORT,exhibit,RULE_MEDIUM,RULE_MEDIUM,rule
 37,38,URLA_1003,main,RULE_HIGH,RULE_HIGH,rule
 38,39,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule

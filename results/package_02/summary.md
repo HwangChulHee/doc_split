@@ -7,10 +7,9 @@
 | 유형 | 페이지 수 |
 |---|---|
 | CREDIT_REPORT | 15 |
-| TITLE_REPORT | 13 |
+| TITLE_REPORT | 14 |
 | URLA_1003 | 10 |
 | INCOME_DOC | 4 |
-| OTHER | 1 |
 | UNRESOLVED | 1 |
 
 ## 판정 경로
@@ -28,16 +27,16 @@
 
 ## 문서 구성
 
-총 **4개 문서 instance**로 묶였다.
+총 **5개 문서 instance**로 묶였다.
 
 - **CREDIT_REPORT**: 1개 instance (15장)
     - `credit_1` 순서 미해결: [3, 9, 31]
 - **INCOME_DOC**: 1개 instance (3장)
     - `income_1` 순서 미해결: [11, 26, 30]
     - 어느 instance에도 배정하지 못한 페이지: [35]
-- **TITLE_REPORT**: 1개 instance (9장)
-    - `title_1` 순서 미해결: [6]
-    - 어느 instance에도 배정하지 못한 페이지: [4, 25, 29, 39]
+- **TITLE_REPORT**: 2개 instance (10장, 3장)
+    - `title_1` 순서 미해결: [6, 4]
+    - 어느 instance에도 배정하지 못한 페이지: [29]
 - **URLA_1003**: 1개 instance (10장)
 
 ## 미해결 페이지
@@ -48,10 +47,10 @@
 
 | 단계 | 호출 | 캐시 적중 | prompt 토큰 | completion 토큰 |
 |---|---|---|---|---|
-| classify_page | 0 | 7 | 0 | 0 |
-| classify_page_vision | 0 | 3 | 0 | 0 |
-| grouping | 0 | 7 | 0 | 0 |
+| classify_page | 7 | 0 | 11,775 | 581 |
+| classify_page_vision | 3 | 0 | 9,963 | 503 |
+| grouping | 3 | 5 | 21,019 | 1,178 |
 
-추정 비용: **$0.0000** (모델 gpt-5.4-mini, 단가 1M 토큰당 입력 $0.25/출력 $2.0 가정)
+추정 비용: **$0.0422** (모델 gpt-5.4-mini, 단가 1M 토큰당 입력 $0.75/출력 $4.5 가정)
 
-> 호출 0건은 **전부 캐시로 처리됐다는 뜻**이다 (`outputs/llm_cache/`). 캐시가 없는 첫 실행의 실측치는 `outputs/llm_usage.json` 의 `cumulative` 에 누적된다.
+이 캐시로 지금까지 실제 지출한 누계: **$0.7433** (호출 301회, 개발 중 반복 실행 포함)

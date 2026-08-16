@@ -23,7 +23,7 @@ from .grouping import group_pages, order_instances
 from .ground_truth import build_ground_truth
 from .llm import DEFAULT_MODEL, LLMClient, LLMDisabled
 from .parse import export_inspection, export_jsonl
-from .pdf_parser import parse_pdf
+from .pdf_parser import parse_pdf, render_page_png
 from .results import (
     score_against_gt,
     write_classification_csv,
@@ -39,26 +39,41 @@ from .unified import (
     llm_variables,
 )
 
-VLM_DPI = 120
+VLM_DPI = 150  # 스캔 꼬리말(폼 코드·페이지 마커)까지 읽히는 해상도
 
 # Published per-1M-token prices for the default model, used only to turn the
-# measured token counts into an order-of-magnitude cost in the summary.
-PRICE_PER_1M = {"input": 0.25, "output": 2.00}
+# measured token counts into a cost figure in the summary.
+# Source: developers.openai.com/api/docs/pricing, 확인 2026-08-17 (standard tier).
+PRICE_PER_1M = {"input": 0.75, "output": 4.50}
 
 
 def _step(n: int, text: str) -> None:
     print(f"[{n}/8] {text}", flush=True)
 
 
-def _cost(usage: dict) -> dict:
+def _usd(usage: dict) -> float:
     prompt = sum(u["prompt_tokens"] for u in usage.values())
     completion = sum(u["completion_tokens"] for u in usage.values())
+    return prompt / 1e6 * PRICE_PER_1M["input"] + completion / 1e6 * PRICE_PER_1M["output"]
+
+
+def _cost(usage: dict, usage_path: Path) -> dict:
+    """This run's cost, plus everything spent on this cache to date.
+
+    The cumulative figure is the honest answer to "what did this cost to
+    build" — a cached re-run reports zero, which is true but not the number a
+    reader wants.
+    """
+    cumulative = {}
+    if usage_path.exists():
+        cumulative = json.loads(usage_path.read_text(encoding="utf-8")).get("cumulative", {})
     return {
         "model": DEFAULT_MODEL,
         "input_per_1m": PRICE_PER_1M["input"],
         "output_per_1m": PRICE_PER_1M["output"],
-        "total_usd": prompt / 1e6 * PRICE_PER_1M["input"]
-        + completion / 1e6 * PRICE_PER_1M["output"],
+        "total_usd": _usd(usage),
+        "cumulative_usd": _usd(cumulative) if cumulative else None,
+        "cumulative_calls": sum(u["calls"] for u in cumulative.values()) if cumulative else None,
     }
 
 
@@ -149,7 +164,7 @@ def run(args: argparse.Namespace) -> int:
     if llm is not None and need_vlm:
         for label, v in need_vlm:
             with pymupdf.open(pdf_by_label[label]) as pdf:
-                png = pdf[v.page].get_pixmap(dpi=VLM_DPI).tobytes("png")
+                png = render_page_png(pdf[v.page], VLM_DPI)
             parsed = llm.complete_json_vision(
                 stage="classify_page_vision",
                 prompt_name="classify_page_vision",
@@ -227,7 +242,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"       패키지 {label}: 정답 원본 없음 — 분류 결과만 산출 "
                   f"(정답 매칭률 {coverage:.0%})")
         write_summary_md(label, rows, groupings.get(label, {}), orderings.get(label, {}),
-                         scored, usage, _cost(usage) if usage else None,
+                         scored, usage, _cost(usage, args.out_dir / 'llm_usage.json') if usage else None,
                          out_dir / "summary.md")
 
     # full detail, including evidence text, stays out of results/

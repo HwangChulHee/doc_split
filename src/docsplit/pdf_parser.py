@@ -72,6 +72,26 @@ def parse_pdf(pdf_path: Path) -> list[PageRecord]:
     return records
 
 
+def render_page_png(page: pymupdf.Page, dpi: int) -> bytes:
+    """Render a page upright, ignoring its stored /Rotate value.
+
+    PyMuPDF applies /Rotate when rasterizing, which is right when the value
+    describes the content. In these scans it does not: the image was stored
+    upright and /Rotate then turns it upside down or on its side, so the model
+    is handed a page it has to read sideways. Rendering the content stream as
+    authored gives an upright image for both the 90° and 180° cases.
+
+    The rotation is restored afterwards because the same page object is reused
+    for geometry-based extraction, which does depend on it.
+    """
+    original = page.rotation
+    try:
+        page.set_rotation(0)
+        return page.get_pixmap(dpi=dpi).tobytes("png")
+    finally:
+        page.set_rotation(original)
+
+
 def slugify(filename: str) -> str:
     """Filesystem-friendly stem for output paths ('INCOME - P & L_x.pdf' -> 'INCOME_P_L_x')."""
     stem = Path(filename).stem

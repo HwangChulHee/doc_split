@@ -212,9 +212,12 @@ def write_summary_md(label: str, verdicts: list[dict], groupings: dict, ordering
             lines += ["", f"추정 비용: **${cost['total_usd']:.4f}** "
                           f"(모델 {cost['model']}, 단가 1M 토큰당 "
                           f"입력 ${cost['input_per_1m']}/출력 ${cost['output_per_1m']} 가정)"]
+        if cost and cost.get("cumulative_usd") is not None:
+            lines += ["", f"이 캐시로 지금까지 실제 지출한 누계: "
+                          f"**${cost['cumulative_usd']:.4f}** "
+                          f"(호출 {cost['cumulative_calls']:,}회, 개발 중 반복 실행 포함)"]
         if not any(u["calls"] for u in usage.values()):
-            lines += ["", "> 호출 0건은 **전부 캐시로 처리됐다는 뜻**이다 "
-                          "(`outputs/llm_cache/`). 캐시가 없는 첫 실행의 실측치는 "
-                          "`outputs/llm_usage.json` 의 `cumulative` 에 누적된다."]
+            lines += ["", "> 이번 실행의 호출이 0건인 것은 **전부 캐시로 처리됐다는 뜻**이다 "
+                          "(`outputs/llm_cache/`). 캐시 없는 첫 실행의 비용은 위 누계를 참고하라."]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

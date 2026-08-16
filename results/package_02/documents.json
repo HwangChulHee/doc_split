@@ -63,6 +63,7 @@
       "pages": [
         0,
         2,
+        4,
         6,
         8,
         14,
@@ -83,14 +84,37 @@
       ],
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
-        6
+        6,
+        4
       ],
       "related_to": {
         "instance_id": "title_2",
         "relation": "같은 거래의 다른 출력본으로 보임",
         "differs_in": [
-          "page 2 of 5 / page 1 of 5 / page 3 of 5 / page 4 of 5 / page 5 of 5 마커 세트가 중복 완비되어 물리적 출력본이 둘로 나뉨",
-          "마커 조합상 page 0-2-8-14-16-21-32-41는 한 벌, 나머지 동일 앵커 페이지들은 다른 벌로 분리"
+          "same vendor and same form code, but page-marker sets overlap with a different 4-page ALTA output; this instance is the 5-page set (y=5)"
+        ]
+      }
+    },
+    {
+      "type": "TITLE_REPORT",
+      "instance_id": "title_2",
+      "pages": [
+        10,
+        25,
+        39
+      ],
+      "ordered_pages": [
+        10,
+        25,
+        39
+      ],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": [],
+      "related_to": {
+        "instance_id": "title_1",
+        "relation": "같은 거래의 다른 출력본으로 보임",
+        "differs_in": [
+          "same vendor and same form code, but page-marker denominator is 4 instead of 5"
         ]
       }
     },
@@ -130,10 +154,7 @@
       35
     ],
     "TITLE_REPORT": [
-      4,
-      25,
-      29,
-      39
+      29
     ]
   }
 }

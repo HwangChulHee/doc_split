@@ -36,12 +36,12 @@ from .discover import discover_inputs
 from .ground_truth import build_ground_truth
 from .llm import LLMClient, LLMDisabled
 from .normalize import PageText
-from .pdf_parser import slugify
+from .pdf_parser import render_page_png, slugify
 from .signals import available_policies, evaluate_universal_only, load_policy
 from .classify import grade_for
 
 PACKAGE_LABEL_RE = re.compile(r"^(\d+)\.")
-VLM_DPI = 120  # title_report.md §7 — enough to read headers/footers off a scan
+VLM_DPI = 150  # title_report.md §7 — enough to read headers/footers off a scan
 
 
 def discover_packages(data_dir: Path, parsed_dir: Path) -> dict[str, tuple[Path, Path]]:
@@ -189,7 +189,7 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         if c["grade"] != "DEFER_VLM" or c["package"] not in scope or llm is None:
             continue
         with pymupdf.open(packages[c["package"]][0]) as pdf:
-            png = pdf[c["page"]].get_pixmap(dpi=VLM_DPI).tobytes("png")
+            png = render_page_png(pdf[c["page"]], VLM_DPI)
         parsed = llm.complete_json_vision(
             stage="classify_page_vision",
             prompt_name="classify_page_vision",
