@@ -1,0 +1,151 @@
+# CREDIT_REPORT 분류 정책 (docs/classification/credit_report.md §3, §9)
+#
+# 문구는 **실물 표기**를 채택하고, 가이드 대응 항목은 주석으로 병기한다 (설계 §3-2).
+# 근거: docs/analysis/credit_vendor_analysis.md — 이 보고서에서 확인되지 않은 문구는 넣지 않는다.
+# 매칭은 normalize(NFKC→특수문자 통일→공백 축약→소문자) 후 수행된다.
+
+type: CREDIT_REPORT
+
+# ── universal — 벤더 독립 (계층 normative/domain) ─────────────
+universal:
+  decisive:
+    U-D1:
+      layer: domain
+      description: "bureau 3사 정식명 동시 등장 — 3사를 나란히 쓰는 문서는 tri-merge 신용보고서뿐"
+      require_all:
+        - "Equifax"
+        - "Experian"
+        - "TransUnion"
+
+  supportive:
+    U-S1:
+      layer: normative
+      description: "FCRA 계열 법정 고지문 — 벤더 독립성이 가장 높은 신호군 (분석 §5)"
+      phrases:
+        - "Notice to Home Loan Applicant"
+        - "Consumer Financial Protection Bureau"
+        - "THE REPORTING BUREAU CERTIFIES THAT"
+    U-S2:
+      layer: domain
+      description: "신용 어휘 — 업계 통용"
+      phrases:
+        - "FICO"
+        - "Credit Score"
+        - "Credit Report"
+        - "Credit Summary"
+    U-S3:
+      layer: domain
+      description: "Trended Data 계열 — bureau 제공 업계 표준 데이터 상품 (가이드 미수록, 분석 §9)"
+      require_all_any:
+        - ["Trended Data"]
+        - ["Scheduled", "Actual"]
+    U-S4:
+      layer: domain
+      description: "bureau 약어 3종 동시. 접미(-B1 등)는 조판이므로 약어만 매칭 — 단어 경계 + 전부 필요"
+      patterns:
+        - '(?=.*\btuc\b)(?=.*\bexp\b)(?=.*\beqx\b)'
+
+# ── vendors — 벤더 레이어 (계층 vendor) ──────────────────────
+# 벤더 추가 = 이 아래 블록 추가. 엔진과 universal 섹션은 수정하지 않는다 (설계 §2).
+vendors:
+  xactus:
+    identity:
+      layer: vendor
+      description: "이 벤더는 신용조회 산출물만 발행 — 벤더명 또는 벤더 주소 라인"
+      phrases:
+        - "XACTUS"
+        - "370 Reed Rd., Suite 100 Broomall, PA 19008"
+        - "370 REED RD., SUITE 100, BROOMALL, PA 19008"
+
+    decisive:
+      X-D1:
+        layer: vendor
+        description: "tradeline 필드명 3종 이상 동시 (Form 1 가이드 항목 10 a–u). 단독 단어는 타 문서에도 출현하므로 조합 조건 필수"
+        min_matches: 3
+        phrases:
+          - "Manner of Payment"      # 가이드 항목 m
+          - "Months Reviewed"        # 항목 q
+          - "30-59 Days Late"        # 항목 r
+          - "60-89 Days Late"
+          - "90-119 Days Late"
+          - "120-149 Days Late"
+          - "150+ Days Late"
+          - "ECOA"                   # 항목 b
+          - "High Credit"            # 항목 g
+          - "Credit Limit"
+          - "Past Due"               # 항목 n
+          - "Reported On"            # 항목 l
+          - "Last Activity"          # 항목 d
+          - "Account Type"           # 항목 i
+          - "Collateral"             # 항목 j
+
+    supportive:
+      X-S1:
+        layer: vendor
+        description: "가이드 항목 4 (Report ID number). 실물 표기 `Report ID:`"
+        phrases: ["Report ID:"]
+      X-S2:
+        layer: vendor
+        description: "가이드 항목 4 (Repositories)"
+        phrases: ["Repositories:"]
+      X-S3:
+        layer: vendor
+        description: "가이드 항목 5 (Order Verifications) / 항목 2 (Requested By)"
+        phrases:
+          - "Order Verifications"
+          - "Requested By:"
+
+    # 패키지 구성 판별 (설계 §3-3). 출력 유형은 CREDIT_REPORT로 통합, subtype은 내부 기록.
+    subtypes:
+      score_disclosure:
+        description: "렌더 레터헤드 법정 고지서 — 발행 주체가 벤더가 아님에 유의"
+        phrases: ["Credit Score Disclosure"]
+      consumer_letter:
+        description: "벤더 → 차주 소비자 안내문"
+        phrases: ["Dear Consumer:"]
+      order_summary:
+        description: >
+          주문 요약 낱장. TWN(고용 검증) 페이지가 같은 라벨군을 쓰므로
+          해당 문구 부재를 확인한다 (설계 §4-3 보류 항목 — TWN을 강제로 잡지 않는다).
+        phrases: ["Client Name:"]
+        require_absent:
+          - "Employment Record Available"
+          - "Manner of Payment"
+          - "Notice to Home Loan Applicant"
+      main_report:
+        description: "본체 — tradeline 조밀. 구체 subtype이 함께 성립하면 그쪽이 우선"
+        via: X-D1
+        fallback_if_others: true
+
+combine:
+  decisive_min: 1
+  supportive_min: 2      # 서로 다른 ID (universal + 벤더 합산)
+  vendor_decisive_requires_identity: true
+
+# ── [2] 신호 카드 (설계 §5) ──────────────────────────────────
+cards:
+  id_patterns:
+    report_id: '\b\d{8}\b'        # 최강 앵커 — 관찰상 전 페이지 존재
+    loan_number: '\b\d{9}\b'
+    client_code: '\b[a-z]{2,5}\d{4,6}\b'
+  date_patterns:
+    - '\b\d{1,2}/\d{1,2}/\d{4}\b'
+    - '\b(?:january|february|march|april|may|june|july|august|september|october|november|december) \d{1,2}, \d{4}\b'
+  page_marker_pattern: '(?:page\s*)?(\d{1,3})\s+of\s+(\d{1,3})'
+  name_anchor: "Applicant"
+
+# ── [4] 순서 정렬 폴백 (설계 §6-2 경로 B) ────────────────────
+# 주의: 이 순서는 데이터셋 관찰 + 패키지 논리 기반이며 URLA의 섹션 순서와 달리
+# 표준 보장이 없다 (설계 §8-3).
+prompts:
+  group: group_credit
+
+ordering:
+  fallback_evidence: >-
+    subtype 순서(main_report → score_disclosure → consumer_letter → order_summary)로 정렬
+    — 데이터셋 관찰 + 패키지 논리 기반이며 표준 보장 없음 (설계 §8-3)
+  subtype_order:
+    - main_report
+    - score_disclosure
+    - consumer_letter
+    - order_summary
