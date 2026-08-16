@@ -7,6 +7,12 @@ outputs/
 *.pdf
 !data/reference/**/*.pdf
 
+# TITLE 준거 문서만 예외의 예외 — 로컬 보관만, 커밋 금지.
+# ALTA 폼은 "ALTA 라이선시 외 사용 금지" 표기를 달고 배포되므로 URLA(GSE blank)·
+# CREDIT(벤더 가이드)과 취급이 다르다. 출처 URL만 SOURCES.md로 남겨 재확보 가능하게 한다.
+data/reference/title/*
+!data/reference/title/SOURCES.md
+
 # secrets
 .env
 
