@@ -13,6 +13,11 @@ outputs/
 data/reference/title/*
 !data/reference/title/SOURCES.md
 
+# INCOME 준거 중 제3자 저작물 — 로컬 보관만. IRS 발행물(forms/, irs.gov 페이지)은
+# 미국 정부 저작물이라 커밋 대상이고, 아래 둘은 아니다.
+data/reference/income/irs/transcripts/
+data/reference/income/vendors/
+
 # secrets
 .env
 
