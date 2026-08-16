@@ -127,7 +127,7 @@ NFKC → 가운뎃점류 통일 → dash류 통일 → 공백 축약 → 소문�
   "page": 37,
   "subtype": "본체",
   "name_candidates": ["..."],
-  "id_candidates": {"loan_number": ["sample01"], "uli": ["[uli]...707"]},
+  "id_candidates": {"loan_number": ["<9자리>"], "uli": ["<20–35자 영숫자>"]},
   "page_marker_candidates": [{"n": 2, "y": 11, "raw": "2 of 11"}],
   "sections_found": ["Section 2"],
   "printed_codes": ["GURLA20S", "(POD)"]

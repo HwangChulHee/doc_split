@@ -1,4 +1,4 @@
-"""V1–V4 verification against pkg01 ground truth (docs/classification/urla.md §7).
+"""V1–V4 verification against the ground truth (docs/classification/urla.md §7).
 
 GT is for verification only — no threshold tuning happens here. On failure the
 report records details (page, signals, suspected cause) and policy changes are
@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-# pkg02 URLA 기대 페이지 (정답 없음 — 관찰 보고서 기준, 핸드오프 §7)
-EXPECTED_PKG02_URLA_PAGES = [12, 15, 17, 19, 22, 24, 28, 34, 36, 42]
+# 정답 없는 두 번째 패키지의 URLA 기대 페이지 (관찰 결과 기준)
+EXPECTED_SECONDARY_URLA_PAGES = {"02": [12, 15, 17, 19, 22, 24, 28, 34, 36, 42]}
 
 
 @dataclass
@@ -31,9 +31,12 @@ def run_verifications(
     grouping: dict | None,
     ordering: dict | None,
     gt_rows: list[dict],
+    gt_label: str = "01",
+    secondary_label: str = "02",
 ) -> list[CheckResult]:
-    p01 = _cls_by_page(classifications, "01")
-    p02 = _cls_by_page(classifications, "02")
+    p01 = _cls_by_page(classifications, gt_label)
+    p02 = _cls_by_page(classifications, secondary_label)
+    expected_secondary = EXPECTED_SECONDARY_URLA_PAGES.get(secondary_label, [])
     gt_urla = sorted(r["input_page"] for r in gt_rows if r["document_type"] == "URLA_1003")
     gt_by_page = {r["input_page"]: r for r in gt_rows}
 
@@ -41,8 +44,8 @@ def run_verifications(
 
     # V1: 모든 URLA 페이지가 RULE_HIGH/MEDIUM 도달
     v1_fail = []
-    targets = [("01", p, p01.get(p)) for p in gt_urla] + [
-        ("02", p, p02.get(p)) for p in EXPECTED_PKG02_URLA_PAGES
+    targets = [(gt_label, p, p01.get(p)) for p in gt_urla] + [
+        (secondary_label, p, p02.get(p)) for p in expected_secondary
     ]
     for pkg, page, c in targets:
         grade = c["grade"] if c else "MISSING"
@@ -58,8 +61,8 @@ def run_verifications(
 
     # V2: 비-URLA 페이지에서 decisive 오발 0
     v2_fail = []
-    non_urla = [("01", p, c) for p, c in p01.items() if p not in set(gt_urla)] + [
-        ("02", p, c) for p, c in p02.items() if p not in set(EXPECTED_PKG02_URLA_PAGES)
+    non_urla = [(gt_label, p, c) for p, c in p01.items() if p not in set(gt_urla)] + [
+        (secondary_label, p, c) for p, c in p02.items() if p not in set(expected_secondary)
     ]
     for pkg, page, c in non_urla:
         if c["signals"] and c["signals"].get("decisive"):
@@ -78,7 +81,7 @@ def run_verifications(
         CheckResult("V3", not v3_fail, f"비-URLA {len(non_urla)}p에서 S≥2 동시 성립 {len(v3_fail)}건", v3_fail)
     )
 
-    # V4: pkg01 URLA 1 instance + 순서가 GT source_page와 일치
+    # V4: GT 패키지의 URLA가 1 instance + 순서가 GT source_page와 일치
     if grouping is None or ordering is None:
         results.append(CheckResult("V4", False, "SKIPPED (--no-llm — 그룹핑 미수행)", []))
         return results
@@ -100,7 +103,7 @@ def run_verifications(
         if seq != list(range(len(ordered))):
             v4_fail.append({"reason": "순서 불일치", "ordered_input_pages": ordered, "gt_source_pages": seq})
     results.append(
-        CheckResult("V4", not v4_fail, "pkg01 URLA 1 instance·GT 순서 일치" if not v4_fail else "그룹핑/순서 불일치", v4_fail)
+        CheckResult("V4", not v4_fail, "GT 패키지 URLA 1 instance·GT 순서 일치" if not v4_fail else "그룹핑/순서 불일치", v4_fail)
     )
     return results
 

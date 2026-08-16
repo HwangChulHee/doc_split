@@ -1,8 +1,11 @@
-# data — 커밋 금지 (단 data/reference/ 공개 표준 양식은 커밋 대상)
+# 입력 데이터 — 커밋 금지 (data/reference/ 공개 표준 양식만 예외)
 data/*
 !data/reference/
-input delivery/
 outputs/
+
+# 저장소 어디에 있든 PDF는 커밋하지 않는다 (공개 표준 양식만 예외)
+*.pdf
+!data/reference/**/*.pdf
 
 # secrets
 .env

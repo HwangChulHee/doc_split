@@ -1,7 +1,7 @@
 [project]
 name = "docsplit"
 version = "0.1.0"
-description = "Loan document package splitter — page classification and grouping pipeline"
+description = "Page classification and document grouping for merged mortgage loan document packages"
 requires-python = ">=3.12"
 dependencies = [
     "openai>=3.1.0",

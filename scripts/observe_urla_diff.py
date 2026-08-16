@@ -35,9 +35,10 @@ BLANKS = {
     "fnm_borrower_information": "fanniemae/urla_borrower_information_blank.pdf",
     "fnm_lender_loan_information": "fanniemae/urla_lender_loan_information_blank.pdf",
 }
+# (label, parsed-jsonl glob, page filter) — globs so dataset file names stay out of the code
 DATASET = [
-    ("pkg01_urla", "outputs/parsed/1003_-_URLA_sample01.jsonl", None),
-    ("pkg02_shuffled", "outputs/parsed/02.sample02_shuffled.jsonl",
+    ("pkg01_urla", "outputs/parsed/*URLA*.jsonl", None),
+    ("pkg02_shuffled", "outputs/parsed/02.*_shuffled.jsonl",
      [12, 15, 17, 19, 22, 24, 28, 34, 36, 42]),
 ]
 RENDERER_CODES = {"gurla20s", "gurla20_s", "(pod)", "0718"}
@@ -63,12 +64,16 @@ def blank_pages() -> list[tuple[str, int, list[str]]]:
 
 def dataset_pages() -> list[tuple[str, int, list[str]]]:
     out = []
-    for label, path, keep in DATASET:
-        for rec in (json.loads(l) for l in (REPO / path).open()):
-            if keep is not None and rec["page_index"] not in keep:
-                continue
-            raw = [l for l in rec["raw_text"].splitlines() if l.strip()]
-            out.append((label, rec["page_index"], raw))
+    for label, pattern, keep in DATASET:
+        matches = sorted(REPO.glob(pattern))
+        if not matches:
+            raise SystemExit(f"{pattern} 에 해당하는 파싱 결과 없음 — 먼저 파싱을 실행하세요.")
+        for path in matches:
+            for rec in (json.loads(l) for l in path.open()):
+                if keep is not None and rec["page_index"] not in keep:
+                    continue
+                raw = [l for l in rec["raw_text"].splitlines() if l.strip()]
+                out.append((label, rec["page_index"], raw))
     return out
 
 

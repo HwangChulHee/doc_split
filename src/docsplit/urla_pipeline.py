@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -24,18 +25,31 @@ from .cards import build_card
 from .classify import classify_page
 from .evaluate import render_report, run_verifications
 from .grouping import group_pages, order_instances
-from .ground_truth import build_pkg01_ground_truth
+from .ground_truth import build_ground_truth
 from .llm import LLMClient, LLMDisabled
+from .pdf_parser import slugify
 from .signals import load_policy
 
-PACKAGE_FILES = {
-    "01": ("01.sample01_shuffled.jsonl", "packages/01.sample01_shuffled.pdf"),
-    "02": ("02.sample02_shuffled.jsonl", "packages/02.sample02_shuffled.pdf"),
-}
+PACKAGE_LABEL_RE = re.compile(r"^(\d+)\.")
 
 
-def load_parsed(parsed_dir: Path, jsonl_name: str) -> list[dict]:
-    path = parsed_dir / jsonl_name
+def discover_packages(data_dir: Path, parsed_dir: Path) -> dict[str, tuple[Path, Path]]:
+    """Map package label -> (input PDF, parsed JSONL).
+
+    Labels come from a leading ``NN.`` in the filename, else the 1-based
+    position, so package filenames are never hardcoded.
+    """
+    packages: dict[str, tuple[Path, Path]] = {}
+    for i, pdf in enumerate(sorted((data_dir / "packages").glob("*.pdf")), start=1):
+        m = PACKAGE_LABEL_RE.match(pdf.name)
+        label = m.group(1) if m else f"{i:02d}"
+        packages[label] = (pdf, parsed_dir / f"{slugify(pdf.name)}.jsonl")
+    if not packages:
+        raise SystemExit(f"{data_dir / 'packages'} 에 PDF가 없습니다.")
+    return packages
+
+
+def load_parsed(path: Path) -> list[dict]:
     if not path.exists():
         raise SystemExit(
             f"{path} 없음 — 먼저 파싱을 실행하세요: uv run python -m docsplit.parse"
@@ -47,7 +61,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-dir", type=Path, default=Path("data"))
     ap.add_argument("--out-dir", type=Path, default=Path("outputs"))
-    ap.add_argument("--package", choices=["01", "02", "both"], default="01")
+    ap.add_argument("--package", default="01",
+                    help="package label (leading NN. of the file name), or 'both'")
     ap.add_argument("--no-llm", action="store_true")
     args = ap.parse_args()
 
@@ -55,7 +70,17 @@ def main() -> None:
     urla_dir = args.out_dir / "urla"
     urla_dir.mkdir(parents=True, exist_ok=True)
     policy = load_policy("urla")
-    scope = ["01", "02"] if args.package == "both" else [args.package]
+
+    packages = discover_packages(args.data_dir, parsed_dir)
+    if args.package == "both":
+        scope = sorted(packages)
+    elif args.package in packages:
+        scope = [args.package]
+    else:
+        raise SystemExit(
+            f"패키지 '{args.package}' 없음 — 사용 가능: {', '.join(sorted(packages))} 또는 both"
+        )
+    gt_label = sorted(packages)[0]  # answer key exists for the first package
 
     llm = None
     if not args.no_llm:
@@ -72,8 +97,8 @@ def main() -> None:
     pages_by_pkg: dict[str, dict[int, str]] = {}
     signal_results: dict[tuple[str, int], object] = {}
     page_texts: dict[tuple[str, int], object] = {}
-    for pkg, (jsonl_name, _) in PACKAGE_FILES.items():
-        recs = load_parsed(parsed_dir, jsonl_name)
+    for pkg, (_, jsonl_path) in sorted(packages.items()):
+        recs = load_parsed(jsonl_path)
         pages_by_pkg[pkg] = {r["page_index"]: r["raw_text"] for r in recs}
         for rec in recs:
             cls, sig, ptext = classify_page(pkg, rec["page_index"], rec["raw_text"], policy)
@@ -115,7 +140,7 @@ def main() -> None:
     cards_by_pkg: dict[str, list] = {}
     with (urla_dir / "cards.jsonl").open("w", encoding="utf-8") as f:
         for pkg in scope:
-            pdf = pymupdf.open(args.data_dir / PACKAGE_FILES[pkg][1])
+            pdf = pymupdf.open(packages[pkg][0])
             cards = []
             for c in classifications:
                 if c["package"] != pkg or c["type"] != policy["type"]:
@@ -156,15 +181,21 @@ def main() -> None:
         )
 
     # ── GT + V1–V4 ────────────────────────────────────────────
-    gt_rows = build_pkg01_ground_truth(parsed_dir, args.out_dir / "ground_truth" / "pkg01.jsonl")
+    gt_rows = build_ground_truth(
+        args.data_dir, parsed_dir, packages[gt_label][1],
+        args.out_dir / "ground_truth" / f"pkg{gt_label}.jsonl",
+    )
     results = run_verifications(
-        classifications, groupings.get("01"), orderings.get("01"), gt_rows
+        classifications, groupings.get(gt_label), orderings.get(gt_label), gt_rows,
+        gt_label=gt_label,
     )
     usage = None
     usage_path = args.out_dir / "llm_usage.json"
     if usage_path.exists():
         usage = json.loads(usage_path.read_text(encoding="utf-8"))
-    report = render_report(results, groupings.get("01"), orderings.get("01"), usage, args.no_llm)
+    report = render_report(
+        results, groupings.get(gt_label), orderings.get(gt_label), usage, args.no_llm
+    )
     (urla_dir / "report.md").write_text(report, encoding="utf-8")
     for r in results:
         print(f"{r.name}: {'PASS' if r.passed else 'FAIL'} — {r.detail}")

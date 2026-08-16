@@ -1,10 +1,11 @@
-"""Ground-truth builder for package 01.
+"""Ground-truth builder for a package that ships an answer key.
 
-The ONLY module allowed to read the original (unshuffled) documents.
+The ONLY module allowed to look at the original (unshuffled) documents.
 Classification/grouping code takes shuffled input exclusively — enforced by
 this module being imported only from the evaluation path.
 
-Matching: SHA-256 over raw page text (39/39 exact, observation report §D).
+Matching: SHA-256 over raw page text (exact for every page of the sample
+package; see the observation notes).
 """
 
 from __future__ import annotations
@@ -33,23 +34,30 @@ def _doc_type(source_file: str) -> str:
     raise ValueError(f"원본 파일명에서 유형을 결정할 수 없음: {source_file}")
 
 
-def build_pkg01_ground_truth(parsed_dir: Path, out_path: Path) -> list[dict]:
-    """Match shuffled pkg01 pages to original pages and write GT JSONL."""
-    shuffled = [
-        json.loads(l) for l in (parsed_dir / "01.sample01_shuffled.jsonl").open(encoding="utf-8")
-    ]
+def build_ground_truth(
+    data_dir: Path, parsed_dir: Path, package_jsonl: Path, out_path: Path
+) -> list[dict]:
+    """Match shuffled package pages to original pages and write GT JSONL.
+
+    Originals are whatever sits in ``data/ground_truth/``; the shuffled side is
+    the parsed JSONL of the package being verified.
+    """
+    shuffled = [json.loads(l) for l in package_jsonl.open(encoding="utf-8")]
+    originals = {p.name for p in (data_dir / "ground_truth").glob("*.pdf")}
+    if not originals:
+        raise SystemExit(f"{data_dir / 'ground_truth'} 에 원본 PDF가 없어 GT를 만들 수 없습니다.")
+
     index: dict[str, tuple[str, int]] = {}
     for f in sorted(parsed_dir.glob("*.jsonl")):
-        if "_shuffled" in f.name:
-            continue
         for rec in (json.loads(l) for l in f.open(encoding="utf-8")):
-            index[_sha(rec["raw_text"])] = (rec["source_file"], rec["page_index"])
+            if rec["source_file"] in originals:
+                index[_sha(rec["raw_text"])] = (rec["source_file"], rec["page_index"])
 
     rows = []
     for rec in shuffled:
         src = index.get(_sha(rec["raw_text"]))
         if src is None:
-            raise RuntimeError(f"GT 매칭 실패: shuffled p{rec['page_index']}")
+            raise RuntimeError(f"GT 매칭 실패: {package_jsonl.stem} p{rec['page_index']}")
         rows.append(
             {
                 "input_page": rec["page_index"],
