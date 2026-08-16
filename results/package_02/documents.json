@@ -1,0 +1,139 @@
+{
+  "documents": [
+    {
+      "type": "CREDIT_REPORT",
+      "instance_id": "credit_1",
+      "pages": [
+        1,
+        3,
+        5,
+        7,
+        9,
+        13,
+        18,
+        20,
+        23,
+        27,
+        31,
+        33,
+        37,
+        40,
+        43
+      ],
+      "ordered_pages": [
+        5,
+        7,
+        13,
+        20,
+        27,
+        33,
+        37,
+        40,
+        43,
+        1,
+        18,
+        23
+      ],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": [
+        3,
+        9,
+        31
+      ]
+    },
+    {
+      "type": "INCOME_DOC",
+      "instance_id": "income_1",
+      "pages": [
+        11,
+        26,
+        30
+      ],
+      "ordered_pages": [],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": [
+        11,
+        26,
+        30
+      ]
+    },
+    {
+      "type": "TITLE_REPORT",
+      "instance_id": "title_1",
+      "pages": [
+        0,
+        2,
+        6,
+        8,
+        14,
+        16,
+        21,
+        32,
+        41
+      ],
+      "ordered_pages": [
+        2,
+        16,
+        0,
+        41,
+        8,
+        32,
+        14,
+        21
+      ],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": [
+        6
+      ],
+      "related_to": {
+        "instance_id": "title_2",
+        "relation": "같은 거래의 다른 출력본으로 보임",
+        "differs_in": [
+          "page 2 of 5 / page 1 of 5 / page 3 of 5 / page 4 of 5 / page 5 of 5 마커 세트가 중복 완비되어 물리적 출력본이 둘로 나뉨",
+          "마커 조합상 page 0-2-8-14-16-21-32-41는 한 벌, 나머지 동일 앵커 페이지들은 다른 벌로 분리"
+        ]
+      }
+    },
+    {
+      "type": "URLA_1003",
+      "instance_id": "urla_1",
+      "pages": [
+        12,
+        15,
+        17,
+        19,
+        22,
+        24,
+        28,
+        34,
+        36,
+        42
+      ],
+      "ordered_pages": [
+        19,
+        34,
+        12,
+        15,
+        42,
+        17,
+        22,
+        28,
+        24,
+        36
+      ],
+      "ordering_method": "CODE_A_PAGE_MARKER",
+      "ordering_unresolved": []
+    }
+  ],
+  "unresolved_pages": {
+    "INCOME_DOC": [
+      35
+    ],
+    "TITLE_REPORT": [
+      4,
+      25,
+      29,
+      39
+    ]
+  }
+}

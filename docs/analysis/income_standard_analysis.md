@@ -369,6 +369,27 @@ VOE(Form 1005) 어휘는 확보 실패로 빠져 있다(§1).
 
 ---
 
+## 11-1. 정정 이력 — LLM 판정이 초기 관찰을 뒤집은 사례
+
+**pkg02 p29**: 초기 관찰 보고서와 `domain_knowledge.md` §5는 이 페이지를
+"Settlement 회사가 보낸 서신"으로 기록하고 OTHER 유형의 예로 들었다.
+
+INCOME 파이프라인이 이 페이지를 5유형 후보로 LLM에 넘겼을 때 돌아온 답은
+`TITLE_REPORT`였고, 근거로 인용한 문구가 다음과 같다:
+
+> `24 MONTH CHAIN OF TITLE REPORT` /
+> `This is to confirm that we had the Land Records for Fairfax County, Virginia
+> searched for the last twenty-four months` /
+> `Document type: Special/Limited Warranty Deed`
+
+즉 이 페이지는 서신 형식이지만 **내용은 24개월 권원 연혁 조회 확인서**다.
+발신자가 정산 회사라는 관찰은 맞았고, 그 관찰에서 "따라서 OTHER"로 넘어간 추론이
+틀렸다. **발행 주체가 아니라 문서의 기능으로 유형을 정한다**는 원칙(설계 §3-2)이
+초기 관찰을 정정한 첫 사례다.
+
+기대값은 `TITLE_REPORT`로 정정했다. OTHER 경로 자체가 동작하는지는 다른 페이지로
+확인된다 — pkg01의 P&L 페이지가 OTHER로 판정됐다(그쪽은 오답이며 §6-1의 한계).
+
 ## 12. 산출물
 
 | 산출물 | 위치 | 커밋 |

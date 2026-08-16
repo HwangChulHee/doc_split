@@ -46,6 +46,13 @@ def group_pages(
     )
     result["package"] = package
 
+    # An instance with no pages is not a document; drop it rather than let it
+    # travel into the results as a zero-page entry.
+    empties = [i.get("instance_id") for i in result.get("instances", []) if not i.get("pages")]
+    if empties:
+        result["instances"] = [i for i in result["instances"] if i.get("pages")]
+        result.setdefault("validation_warnings", []).append({"empty_instances": empties})
+
     known = {c.page for c in cards}
     assigned = [p for inst in result.get("instances", []) for p in inst.get("pages", [])]
     dup = [p for p, n in Counter(assigned).items() if n > 1]
@@ -55,6 +62,10 @@ def group_pages(
         result.setdefault("validation_warnings", []).append(
             {"duplicated": dup, "missing": missing, "unknown_pages": unknown}
         )
+    # A page of this type that the model neither placed nor rejected is still a
+    # page we must account for; unresolved is the honest bucket for it.
+    if missing:
+        result["unresolved_pages"] = sorted(set(result.get("unresolved_pages", [])) | set(missing))
     return result
 
 

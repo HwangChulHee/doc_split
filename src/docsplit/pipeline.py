@@ -32,6 +32,7 @@ from .evaluate import (
     run_verifications,
 )
 from .grouping import group_pages, order_instances
+from .discover import discover_inputs
 from .ground_truth import build_ground_truth
 from .llm import LLMClient, LLMDisabled
 from .normalize import PageText
@@ -260,10 +261,15 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
             json.dumps(orderings, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ── GT + checks ───────────────────────────────────────────
-    gt_rows = build_ground_truth(
-        args.data_dir, parsed_dir, packages[gt_label][1],
+    # Answer-key files are recognized the same way the unified CLI recognizes
+    # them, so the two paths never disagree about what the originals are.
+    answer_keys = {f.path.name: f.doc_type for f in discover_inputs(args.data_dir).answer_keys}
+    gt_rows, gt_coverage = build_ground_truth(
+        answer_keys, parsed_dir, packages[gt_label][1],
         args.out_dir / "ground_truth" / f"pkg{gt_label}.jsonl",
     )
+    if gt_coverage < 1.0:
+        print(f"⚠️  패키지 {gt_label} 의 정답 매칭률이 {gt_coverage:.0%} 입니다 — 검증이 부분적입니다.")
     expected, warnings = load_expected_pages(type_name, sorted(packages))
     for w in warnings:
         print(f"⚠️  {w}")
