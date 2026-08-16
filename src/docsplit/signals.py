@@ -31,6 +31,11 @@ Match spec keys, all optional and combinable:
 ``require_absent``   none of the listed phrases may match
 ===================  ==========================================================
 
+One flag is not a match rule but changes how a match counts:
+``identity_exempt: true`` on a vendor *decisive* signal keeps it decisive even
+when that vendor's identity did not match — used for text a standards body
+forces onto the page regardless of who issued it (title_report.md §3).
+
 Signal layers (design §2) record *why* a rule is trustworthy:
 ``normative`` (law/standards body) > ``domain`` (industry structure) >
 ``vendor`` (one product) > ``deployment`` (per-install; never a rule).
@@ -77,6 +82,7 @@ class SignalHit:
     matched_text: str
     vendor: str | None = None
     demoted_from: str | None = None  # set when a vendor decisive lacked identity
+    identity_exempt: bool = False  # counted as decisive despite no vendor identity
 
     def to_dict(self) -> dict:
         d = {
@@ -90,6 +96,8 @@ class SignalHit:
             d["vendor"] = self.vendor
         if self.demoted_from:
             d["demoted_from"] = self.demoted_from
+        if self.identity_exempt:
+            d["identity_exempt"] = True
         return d
 
 
@@ -214,11 +222,17 @@ def evaluate_signals(page: PageText, policy: dict) -> SignalResult:
         if has_identity:
             res.identities.append(vkey)
 
-        vend_dec = _eval_group(vblock.get("decisive"), "decisive", page, res, vendor=vkey)
-        if has_identity or not requires_identity:
-            res.decisive += vend_dec
-        else:
-            for h in vend_dec:  # demote: counts as one supportive ID
+        dec_specs = vblock.get("decisive") or {}
+        vend_dec = _eval_group(dec_specs, "decisive", page, res, vendor=vkey)
+        for h in vend_dec:
+            # ``identity_exempt`` marks a signal the association (not the vendor)
+            # forces onto the page, so it holds whoever issued the document
+            # (title_report.md §3). Everything else needs the vendor's identity.
+            exempt = bool(dec_specs.get(h.signal_id, {}).get("identity_exempt"))
+            if has_identity or not requires_identity or exempt:
+                h.identity_exempt = exempt and not has_identity
+                res.decisive.append(h)
+            else:  # demote: counts as one supportive ID
                 h.kind, h.demoted_from = "supportive", "decisive"
                 res.supportive.append(h)
         res.supportive += _eval_group(vblock.get("supportive"), "supportive", page, res, vendor=vkey)

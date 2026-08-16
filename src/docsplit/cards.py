@@ -11,6 +11,7 @@ Everything extracted here is policy-driven (``cards:`` section):
 ``id_patterns``         {field name: regex} over normalized page text
 ``date_patterns``       regexes collected into ``date_candidates``
 ``page_marker_pattern``  ``N of Y`` variants (body false positives kept)
+``page_marker_pattern_no_denominator``  ``Page N`` with no ``of Y`` (``y`` is None)
 ``name_anchor``         label text; values are read from the same visual line
 ``printed_codes``       literal lines to record (material, never a rule)
 ``signal_phrase_fields``  signal IDs whose matched phrases go to sections_found
@@ -138,6 +139,13 @@ def build_card(
             card.page_marker_candidates.append(
                 {"n": int(m.group(1)), "y": int(m.group(2)), "raw": m.group(0)}
             )
+    # Some forms print "Page N" with no total (title_report.md §4-3). Those get
+    # y=None so ordering can tell "no denominator" from "denominator mismatch".
+    if cfg.get("page_marker_pattern_no_denominator"):
+        for m in re.finditer(cfg["page_marker_pattern_no_denominator"], page.fulltext):
+            card.page_marker_candidates.append(
+                {"n": int(m.group(1)), "y": None, "raw": m.group(0)}
+            )
 
     card.sections_found = sorted(
         {
@@ -151,4 +159,29 @@ def build_card(
     card.id_block_present = bool(id_block_signal) and any(
         h.signal_id == id_block_signal for h in signal_result.all_hits()
     )
+    return card
+
+
+VLM_MARKER_RE = re.compile(r"(\d{1,3})\s*(?:of|/)\s*(\d{1,3})|(\d{1,3})")
+
+
+def apply_vlm_extract(card: SignalCard, extracted: dict) -> SignalCard:
+    """Fold what the VLM read off an image page into its (otherwise empty) card.
+
+    A scanned page has no text layer, so stage [3] would see nothing at all.
+    These values are marked ``source: vlm`` because they are model readings, not
+    regex hits over extracted text — stage [3] should weigh them accordingly.
+    """
+    marker = str(extracted.get("page_marker") or "").strip()
+    if marker:
+        m = VLM_MARKER_RE.search(marker)
+        if m:
+            n, y = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), None)
+            card.page_marker_candidates.append(
+                {"n": int(n), "y": int(y) if y else None, "raw": marker, "source": "vlm"}
+            )
+    for key in ("form_code", "vendor"):
+        value = str(extracted.get(key) or "").strip()
+        if value:
+            card.printed_codes.append(f"[vlm:{key}] {value}")
     return card

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .cards import build_card
+from .cards import apply_vlm_extract, build_card
 from .classify import classify_page
 from .evaluate import (
     layer_contribution,
@@ -40,6 +40,7 @@ from .signals import available_policies, evaluate_universal_only, load_policy
 from .classify import grade_for
 
 PACKAGE_LABEL_RE = re.compile(r"^(\d+)\.")
+VLM_DPI = 120  # title_report.md §7 — enough to read headers/footers off a scan
 
 
 def discover_packages(data_dir: Path, parsed_dir: Path) -> dict[str, tuple[Path, Path]]:
@@ -78,6 +79,10 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
     policy = load_policy(policy_name)
     type_name = policy["type"]
     competing = [load_policy(n) for n in available_policies() if n != policy_name]
+    # The VLM sees an image with no prior rule evidence, so it is offered every
+    # type — including ones no policy exists for yet (title_report.md §7).
+    all_types = sorted({type_name, *(p["type"] for p in competing),
+                        "INCOME_DOC", "OTHER"})
 
     parsed_dir = args.out_dir / "parsed"
     out_dir = args.out_dir / out_subdir
@@ -157,6 +162,34 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         else:
             c["type"], c["grade"] = None, "LLM"
 
+    # ── [1b] VLM: pages with no text layer at all ─────────────
+    # Rendering carries the page rotation, so no separate correction is needed.
+    vlm_extracts: dict[tuple[str, int], dict] = {}
+    for c in classifications:
+        if c["grade"] != "DEFER_VLM" or c["package"] not in scope or llm is None:
+            continue
+        with pymupdf.open(packages[c["package"]][0]) as pdf:
+            png = pdf[c["page"]].get_pixmap(dpi=VLM_DPI).tobytes("png")
+        parsed = llm.complete_json_vision(
+            stage="classify_page_vision",
+            prompt_name="classify_page_vision",
+            variables={
+                "candidate_types": "\n".join(f"- {t}" for t in all_types),
+                "package": c["package"],
+                "page": str(c["page"]),
+            },
+            image_png=png,
+        )
+        c["llm"] = parsed
+        if parsed.get("type") == type_name:
+            c["type"], c["grade"] = type_name, "VLM"
+            c["subtype"] = parsed.get("subtype")
+            vlm_extracts[(c["package"], c["page"])] = parsed.get("extracted") or {}
+        elif parsed.get("type") in (None, "UNRESOLVED"):
+            c["grade"] = "VLM_UNRESOLVED"
+        else:
+            c["type"], c["grade"] = None, "VLM"
+
     with (out_dir / "classification.jsonl").open("w", encoding="utf-8") as f:
         for c in classifications:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
@@ -176,6 +209,9 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
                     pkg, c["page"], page_texts[(pkg, c["page"])],
                     signal_results[(pkg, c["page"])], c["subtype"], policy, pdf[c["page"]],
                 )
+                extracted = vlm_extracts.get((pkg, c["page"]))
+                if extracted:  # image page: the card is empty without this
+                    apply_vlm_extract(card, extracted)
                 cards.append(card)
                 f.write(json.dumps(card.to_dict(), ensure_ascii=False) + "\n")
             pdf.close()
@@ -213,11 +249,30 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
     for w in warnings:
         print(f"⚠️  {w}")
 
+    verify_cfg = policy.get("verification", {})
     results = run_verifications(
-        type_name, classifications, groupings.get(gt_label), orderings.get(gt_label),
+        type_name, classifications, groupings, orderings,
         gt_rows, gt_label=gt_label, expected_pages=expected, prefix=check_prefix,
         universal_only=universal_only.get(gt_label) if policy.get("vendors") else None,
+        gt_exclude_source_pages=verify_cfg.get("gt_exclude_source_pages"),
+        instance_expectations=verify_cfg.get("instance_expectations"),
+        markers_by_page={
+            pkg: {c.page: [(m["n"], m["y"]) for m in c.page_marker_candidates] for c in cards}
+            for pkg, cards in cards_by_pkg.items()
+        },
     )
+
+    excluded_src = set(verify_cfg.get("gt_exclude_source_pages") or [])
+    excluded_input = {
+        r["input_page"] for r in gt_rows
+        if r["document_type"] == type_name and r["source_page"] in excluded_src
+    }
+    excluded_pages = [
+        c for c in classifications
+        if c["package"] == gt_label and c["page"] in excluded_input
+    ]
+    vlm_pages = [c for c in classifications if c["grade"].startswith("VLM")
+                 or (c.get("llm") and c["grade"] == "DEFER_VLM")]
 
     subtype_counts = dict(
         Counter(
@@ -238,6 +293,9 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         subtype_counts=subtype_counts,
         conflicts=conflicts,
         warnings=warnings,
+        excluded_pages=excluded_pages if excluded_src else None,
+        vlm_pages=vlm_pages if any(c["grade"] == "DEFER_VLM" or
+                                   c["grade"].startswith("VLM") for c in classifications) else None,
     )
     (out_dir / "report.md").write_text(report, encoding="utf-8")
     for r in results:

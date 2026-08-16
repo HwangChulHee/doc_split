@@ -1,0 +1,245 @@
+# TITLE_REPORT 분류 정책 (docs/classification/title_report.md §2, §8)
+#
+# 근거: docs/analysis/title_standard_analysis.md — 이 보고서에서 확인되지 않은 문구는 넣지 않는다.
+# 매칭은 normalize(NFKC→대시·불릿 통일→공백 축약→소문자) 후 수행되므로,
+# 대소문자 표기 차이(`FIDELITY NATIONAL TITLE` / `Fidelity National Title`)는 자동 흡수된다.
+#
+# 이 유형의 특수성: 두 패키지가 **다른 폼·다른 벤더**다 (설계 §1).
+# 그래서 벤더 블록이 2개이고, 결정적 universal이 존재하지 않는다.
+
+type: TITLE_REPORT
+
+# ── universal — 벤더 독립 ────────────────────────────────────
+universal:
+  # decisive: 없음.
+  #
+  # 이 부재는 누락이 아니라 분석 §7-1로 확정된 사실이다: ALTA 폼과 CLTA 폼이
+  # 공유하는 고정 문구가 데이터셋에 존재하지 않는다. 양방향으로 확인했다 —
+  # ALTA 고정 문구 11종의 pkg01 등장 0건, CLTA 법정 문장 3종의 pkg02 등장 0건.
+  # 따라서 TITLE의 universal은 지지 신호만 갖고, 결정적 신호는 벤더 블록이 진다.
+  # (섹션을 생략하지 않고 빈 상태로 남긴다 — 설계 §8)
+  decisive: {}
+
+  supportive:
+    T-S1:
+      layer: domain
+      description: >
+        Title 어휘 3종 이상 동시. 분석 §7-2의 공유 어휘 22종 중 식별력이 있는 것만 골랐다.
+        범용어(`lien`, `County`, `Company`, `Land`, `recorded`)는 단독으로도 조합으로도 넣지 않는다.
+      min_matches: 3
+      phrases:
+        - "Title Insurance"
+        - "Schedule A"
+        - "Schedule B"
+        - "estate or interest"
+        - "vested in"
+        - "easement"
+        - "Deed of Trust"
+        - "Legal Description"
+        - "Exceptions"
+        - "Requirements"
+    T-S2:
+      layer: domain
+      description: "문서 유형 명칭 — 한 문구라도 성립 (분석 §4-1의 pkg01 반복 문구, §2의 pkg02 헤더)"
+      phrases:
+        - "PRELIMINARY REPORT"
+        - "Commitment for Title Insurance"
+
+# ── vendors — 벤더 레이어 2블록 ──────────────────────────────
+vendors:
+  # ── ALTA 2021 Commitment 계열 ─────────────────────────────
+  first_american:
+    identity:
+      layer: vendor
+      description: >
+        벤더명 또는 주별 버전 표기. 버전 번호(`01.00`)는 텍스트 레이어에 없으므로
+        패턴은 `v.` 까지만 잡는다 (분석 §9-1). 매칭은 라인이 아니라 이어붙인 전체
+        텍스트에 대해 수행되므로 행 선두 앵커(^) 대신 단어 경계를 쓴다.
+      phrases:
+        - "First American Title"
+      patterns:
+        - '\b[a-z]+(?: [a-z]+)* - 2021 v\.'
+
+    decisive:
+      FA-D1:
+        layer: normative
+        identity_exempt: true
+        description: >
+          ALTA 고지문 골격. 협회가 라이선스 조건으로 인쇄를 강제하는 문구이므로
+          발행사가 누구든 성립한다 → identity_exempt. 발행사 슬롯을 사이에 두고
+          앞/뒤 두 조각으로 나눠 both-substring으로 매칭한다 (설계 §3).
+          근거: FL OIR 확보 blank와 10/10 일치, [K-K] 조합 (분석 §2-2).
+        require_all:
+          - "This page is only a part of a 2021 ALTA Commitment for Title Insurance issued by"
+          - "This Commitment is not valid without the Notice"
+      FA-D2:
+        layer: normative
+        identity_exempt: true
+        description: "ALTA Copyright 블록 — 동일 근거 (분석 §2-4, 10/10)"
+        phrases:
+          - "Copyright 2021 American Land Title Association. All rights reserved."
+          - "Reprinted under license from the American Land Title Association."
+
+    supportive:
+      FA-S1:
+        layer: normative
+        description: >
+          Transaction Identification Data 라벨군 (분석 §3-1 — blank와 정확 일치).
+          `lssuing Office:` 는 벤더 템플릿 오타이며(분석 §3-3), 원형 `Issuing Office:` 를
+          병기해 다른 발행본도 잡히게 한다.
+        phrases:
+          - "Issuing Agent:"
+          - "Commitment Number:"
+          - "Issuing Office File Number:"
+          - "Loan ID Number:"
+          - "Revision Number:"
+          - "lssuing Office:"
+          - "Issuing Office:"
+      FA-S2:
+        layer: normative
+        description: >
+          Schedule B Part I 표준 요건 문장 (분석 §3-1 — Part I은 verbatim).
+          Part II 예외 문구는 협회 표준이 아님이 확인되어 채택하지 않는다 (분석 §3-2).
+        phrases:
+          - "All of the following Requirements must be met:"
+          - "Pay the agreed amount for the estate or interest to be insured."
+          - "Pay the premiums, fees, and charges for the Policy to the Company."
+
+    # 주의: ALTA 고지문이 Schedule 명칭을 **전부** 나열하므로(분석 §2-2),
+    # `Schedule B, Part I` 같은 제목 문구만으로는 전 페이지에서 성립해 버린다.
+    # 그래서 각 장에만 있는 본문 문장을 함께 요구한다.
+    subtypes:
+      schedule_a:
+        description: "Transaction ID Data 라벨군 + Schedule A (라벨군은 분석 §3-1상 이 장에만)"
+        require_all: ["Commitment Number:", "Schedule A"]
+      legal_description:
+        description: "물건의 법적 표시 장 — 고지문에 없는 제목 (분석 §7-2: pkg02 2장)"
+        phrases: ["LEGAL DESCRIPTION"]
+      schedule_b1:
+        description: "제목 + Part I 도입문. 도입문은 이 장에만 (분석 §3-1)"
+        require_all:
+          - "SCHEDULE B, PART I"
+          - "All of the following Requirements must be met:"
+      schedule_b2:
+        description: "제목 + Part II 도입문(Discriminatory Covenants). 도입문은 이 장에만 (분석 §3-1)"
+        require_all:
+          - "SCHEDULE B, PART II"
+          - "Some historical land records contain Discriminatory Covenants"
+      conditions:
+        description: >
+          전국 공통 약관. 제목 `Commitment Conditions`는 고지문에도 들어 있으므로
+          약관 본문의 정의 조항을 함께 요구한다 (blank 확인 문구).
+          실물은 스캔본이라 텍스트 경로로는 성립하지 않는다 — VLM 판독 시 사용 (설계 §3, §7).
+        require_all:
+          - "COMMITMENT CONDITIONS"
+          - "DEFINITIONS"
+
+  # ── CLTA Preliminary Report 계열 ──────────────────────────
+  fidelity:
+    identity:
+      layer: vendor
+      description: "벤더명 또는 푸터 코드 앞조각 (분석 §4-1). 코드 체계 자체는 근거 미확보 → 조각만 사용"
+      phrases:
+        - "Fidelity National Title"
+        - "CA-FT-"
+
+    decisive:
+      FD-D1:
+        layer: vendor
+        description: >
+          CLTA 법정 성격 문장 (다음 중 1문장). Ticor(FNTG 계열) 가이드 샘플과 문구가
+          일치한다 (분석 §4-2). 법령 §12340.11은 효력만 규정하고 축자 요구는 확인되지
+          않았으므로 layer는 normative가 아니라 vendor이며, identity 전제도 유지한다.
+        phrases:
+          - "It is important to note that this preliminary report is not a written representation
+             as to the condition of title and may not list all liens, defects, and encumbrances
+             affecting title to the land."
+          - "The exceptions and exclusions are meant to provide you with notice of matters which
+             are not covered under the terms of the title insurance policy and should be carefully
+             considered."
+          - "This report (and any supplements or amendments hereto) is issued solely for the
+             purpose of facilitating the issuance of a policy of title insurance and no liability
+             is assumed hereby."
+
+    supportive:
+      FD-S1:
+        layer: vendor
+        description: "폼 버전 푸터 — 8/9장 반복 (분석 §4-1)"
+        phrases: ["CLTA Preliminary Report Form"]
+      FD-S2:
+        layer: vendor
+        description: "문서번호·개정 회차 라벨 — 6~7/9장 (분석 §4-1)"
+        phrases:
+          - "PRELIM NO."
+          - "AMENDMENT"
+      FD-S3:
+        layer: vendor
+        description: "prelim 도입·Schedule A 문구 골격 — 가이드 샘플 대조 (분석 §4-2)"
+        phrases:
+          - "hereby reports that it is prepared to issue, or cause to be issued"
+          - "Title to said estate or interest at the date hereof is vested in:"
+          - "The estate or interest in the Land hereinafter described or referred to covered by this Report is:"
+
+    # `body`("본문 그 외")를 폴백으로 둔다. 섹션 제목(EXCEPTIONS/REQUIREMENTS 등)은
+    # 정규화가 대소문자를 지우기 때문에 표지의 서술문("...the exceptions shown...")과
+    # 구분되지 않는다 — 제목 문구로 body를 특정하려 하면 표지까지 잡힌다.
+    subtypes:
+      cover:
+        description: "표지 — 법정 성격 문장이 실린 장"
+        via: FD-D1
+      exhibit:
+        description: "법적 표시 별지"
+        phrases: ["EXHIBIT A"]
+      body:
+        description: "Schedule/Exceptions/Requirements 본문 — 구체 subtype이 없으면 여기"
+        via: FD-S1
+        fallback_if_others: true
+
+combine:
+  decisive_min: 1
+  supportive_min: 2      # 서로 다른 ID (universal + 벤더 합산)
+  vendor_decisive_requires_identity: true   # FA-D1/D2는 identity_exempt로 개별 면제
+
+# ── [2] 신호 카드 (설계 §2-4 — 규칙 미채택 신호가 여기 모인다) ──
+cards:
+  id_patterns:
+    # 값 자체가 그룹핑 앵커·분리 재료다. 오탐 포함은 설계 의도 (판단은 [3]단계 몫).
+    hyphen_id: '\b\d{3,5}-\d{6,8}\b'
+    dotted_id: '\b\d{4,6}\.\d{5,7}\b'
+    numeric_id: '\b\d{6,10}\b'
+    suffixed_id: '\b\d{4,8}[a-z]{2}\b'
+    form_code: 'form \d{6,9} \(\d{1,2}-\d{1,2}-\d{2,4}\)'
+  date_patterns:
+    - '\b\d{1,2}/\d{1,2}/\d{4}\b'
+    - '\b(?:january|february|march|april|may|june|july|august|september|october|november|december) \d{1,2}, \d{4}\b'
+    - 'printed: *\d{2}\.\d{2}\.\d{2} @ \d{1,2}:\d{2} [ap]m'   # 인쇄 배치 (분석 §4-1)
+  # 두 폼의 페이지 표기 체계가 다르다 (분석 §4-1): ALTA는 분모 있음, CLTA는 없음.
+  page_marker_pattern: 'page\s+(\d{1,3})\s+of\s+(\d{1,3})'
+  page_marker_pattern_no_denominator: 'page\s+(\d{1,3})(?!\s*of\b)'
+  signal_phrase_fields: [T-S1, T-S2]
+
+prompts:
+  group: group_title
+
+# ── 검증 (설계 §5, §6) ───────────────────────────────────────
+verification:
+  # 원본 Title p8(plat map 자리)은 텍스트 근거가 전무하다 — 공유 어휘 0, 벤더 푸터 0,
+  # 이미지 0 (분석 §4-3). 이 페이지를 잡으려고 규칙을 비틀지 않기로 했으므로 T-V1에서
+  # 제외한다. 대신 실제 처리 결과는 리포트에 별도 섹션으로 남는다 (설계 §5-1).
+  gt_exclude_source_pages: [8]
+  instance_expectations:
+    "02":
+      instances: 2               # Commitment 두 벌 — 마커 세트 중복 완비 (설계 §4-1)
+      require_related_to: true   # 분리하되 관계를 기록해야 한다
+      no_duplicate_markers: true # 한 instance 안에 같은 마커 번호가 두 번 나오면 안 된다
+
+# ── [4] 순서 정렬 (설계 §4-3) ────────────────────────────────
+ordering:
+  # pkg01은 `Page N`으로 분모가 없어 기존 경로 A의 "1..Y 무결" 판정이 성립하지 않는다.
+  marker_no_denominator: true
+  fallback_evidence: >-
+    벤더별 subtype 순서로 정렬 — ALTA 쪽은 협회 폼의 구성 나열 순서(협회 표준 검증),
+    CLTA 쪽은 벤더 가이드의 구성 순서(벤더 문서 검증)
+  per_vendor_subtype_order:
+    first_american: [schedule_a, legal_description, schedule_b1, schedule_b2, conditions]
+    fidelity: [cover, body, exhibit]

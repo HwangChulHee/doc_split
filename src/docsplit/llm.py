@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -132,15 +133,61 @@ class LLMClient:
         self._record_usage(stage, cached=False, usage=usage)
         return parsed
 
-    def _call(self, prompt: str) -> tuple[str, dict]:
+    def complete_json_vision(
+        self, stage: str, prompt_name: str, variables: dict[str, str], image_png: bytes
+    ) -> dict:
+        """Same contract as complete_json, with one page image attached.
+
+        The image hash joins the cache key, so re-rendering the same page at the
+        same dpi is a cache hit while a different render is not.
+        """
+        if not self.enabled:
+            raise LLMDisabled("LLM 비활성 상태에서 complete_json_vision이 호출되었습니다 (--no-llm).")
+
+        rendered, file_hash = render_prompt(prompt_name, variables)
+        image_hash = hashlib.sha256(image_png).hexdigest()
+        key = hashlib.sha256(
+            f"{file_hash}:{self.model}:vision:{image_hash}:{rendered}".encode()
+        ).hexdigest()
+        cache_file = self.cache_dir / f"{key}.json"
+
+        if cache_file.exists():
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            self._record_usage(stage, cached=True, usage=None)
+            return cached["parsed"]
+
+        text, usage = self._call(rendered, image_png=image_png)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            self._record_usage(stage, cached=False, usage=usage)
+            raise RuntimeError(f"VLM JSON 파싱 실패 (stage={stage}): {text[:200]}") from e
+
+        cache_file.write_text(
+            json.dumps({"parsed": parsed, "usage": usage, "model": self.model},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._record_usage(stage, cached=False, usage=usage)
+        return parsed
+
+    def _call(self, prompt: str, image_png: bytes | None = None) -> tuple[str, dict]:
         from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+
+        content: str | list = prompt
+        if image_png is not None:
+            data_uri = "data:image/png;base64," + base64.b64encode(image_png).decode()
+            content = [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_uri}},
+            ]
 
         last_err: Exception | None = None
         for attempt in range(TRANSIENT_RETRIES + 1):
             try:
                 resp = self._client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": content}],
                     response_format={"type": "json_object"},
                 )
                 usage = {

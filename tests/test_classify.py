@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from docsplit.cards import SignalCard  # noqa: E402
+from docsplit.cards import SignalCard, apply_vlm_extract  # noqa: E402
 from docsplit.classify import classify_page  # noqa: E402
 from docsplit.grouping import order_instances  # noqa: E402
 from docsplit.normalize import PageText  # noqa: E402
@@ -228,8 +228,141 @@ def test_ordering_path_c_marks_unresolved():
     assert inst["ordered_pages"] == [1]
 
 
+# ── identity_exempt (title_report.md §3) ─────────────────────
+EXEMPT_POLICY = {
+    "type": "EXEMPT_TYPE",
+    "universal": {"decisive": {}, "supportive": {}},
+    "vendors": {
+        "acme": {
+            "identity": {"layer": "vendor", "phrases": ["ACME CORP"]},
+            "decisive": {
+                "E-D1": {"layer": "normative", "identity_exempt": True,
+                         "phrases": ["standards body mandated notice"]},
+                "E-D2": {"layer": "vendor", "phrases": ["vendor only marker"]},
+            },
+            "supportive": {},
+        }
+    },
+    "combine": {"decisive_min": 1, "supportive_min": 2,
+                "vendor_decisive_requires_identity": True},
+}
+
+
+def test_identity_exempt_signal_stays_decisive_without_identity():
+    cls, res, _ = classify_page("01", 0, "standards body mandated notice", EXEMPT_POLICY)
+    assert cls.grade == "RULE_HIGH"
+    assert res.identities == []
+    assert res.decisive_ids() == ["E-D1"]
+    assert res.decisive[0].identity_exempt is True
+
+
+def test_non_exempt_sibling_still_needs_identity():
+    """The flag is per signal, not per vendor block."""
+    cls, res, _ = classify_page("01", 0, "vendor only marker", EXEMPT_POLICY)
+    assert cls.grade == "DEFER_LLM"
+    assert res.decisive_ids() == []
+    assert res.supportive_ids() == ["E-D2"]
+
+
+def test_identity_exempt_not_flagged_when_identity_present():
+    _, res, _ = classify_page(
+        "01", 0, "ACME CORP\nstandards body mandated notice", EXEMPT_POLICY
+    )
+    assert res.decisive_ids() == ["E-D1"]
+    assert res.decisive[0].identity_exempt is False
+
+
+# ── marker_no_denominator / per-vendor order (title_report.md §4-3) ──
+def _bare(page: int, n: int, subtype=None, vendor=()):
+    card = SignalCard(package="01", page=page, subtype=subtype,
+                      vendor_identity=list(vendor))
+    card.page_marker_candidates = [{"n": n, "y": None, "raw": f"Page {n}"}]
+    return card
+
+
+def test_bare_markers_order_only_when_policy_opts_in():
+    cards = [_bare(5, 2), _bare(9, 1), _bare(7, 3)]
+    grouping = {"package": "01", "instances": [{"instance_id": "i1", "pages": [5, 9, 7]}]}
+    off = order_instances(grouping, cards, {"ordering": {}})["instances"][0]
+    assert off["method"] == "CODE_B_FALLBACK_ORDER"
+
+    on = order_instances(
+        grouping, cards, {"ordering": {"marker_no_denominator": True}}
+    )["instances"][0]
+    assert on["method"] == "CODE_A_PAGE_MARKER"
+    assert on["ordered_pages"] == [9, 5, 7]
+
+
+def test_bare_markers_rejected_when_not_contiguous():
+    cards = [_bare(5, 1), _bare(9, 4)]  # 1 and 4 over two pages -> gap
+    grouping = {"package": "01", "instances": [{"instance_id": "i1", "pages": [5, 9]}]}
+    inst = order_instances(
+        grouping, cards, {"ordering": {"marker_no_denominator": True}}
+    )["instances"][0]
+    assert inst["method"] == "CODE_B_FALLBACK_ORDER"
+
+
+def test_denominator_markers_still_win_over_bare_ones():
+    a = SignalCard(package="01", page=1, subtype=None)
+    a.page_marker_candidates = [{"n": 2, "y": 2, "raw": "2 of 2"}, {"n": 9, "y": None, "raw": "Page 9"}]
+    b = SignalCard(package="01", page=2, subtype=None)
+    b.page_marker_candidates = [{"n": 1, "y": 2, "raw": "1 of 2"}, {"n": 4, "y": None, "raw": "Page 4"}]
+    grouping = {"package": "01", "instances": [{"instance_id": "i1", "pages": [1, 2]}]}
+    inst = order_instances(
+        grouping, [a, b], {"ordering": {"marker_no_denominator": True}}
+    )["instances"][0]
+    assert inst["ordered_pages"] == [2, 1]
+
+
+def test_per_vendor_subtype_order_picks_the_cards_vendor():
+    policy = {"ordering": {"per_vendor_subtype_order": {
+        "alpha": ["front", "back"],
+        "beta": ["back", "front"],
+    }}}
+    cards = [
+        SignalCard(package="01", page=1, subtype="back", vendor_identity=["beta"]),
+        SignalCard(package="01", page=2, subtype="front", vendor_identity=["beta"]),
+    ]
+    grouping = {"package": "01", "instances": [{"instance_id": "i1", "pages": [1, 2]}]}
+    inst = order_instances(grouping, cards, policy)["instances"][0]
+    assert inst["ordered_pages"] == [1, 2]  # beta order: back then front
+
+
+def test_per_vendor_order_recovers_vendor_from_subtype_when_identity_missing():
+    """identity_exempt pages carry no vendor key, so the subtype has to say."""
+    policy = {"ordering": {"per_vendor_subtype_order": {"alpha": ["front", "back"]}}}
+    cards = [
+        SignalCard(package="01", page=1, subtype="back"),
+        SignalCard(package="01", page=2, subtype="front"),
+    ]
+    grouping = {"package": "01", "instances": [{"instance_id": "i1", "pages": [1, 2]}]}
+    inst = order_instances(grouping, cards, policy)["instances"][0]
+    assert inst["ordered_pages"] == [2, 1]
+
+
+# ── VLM extract -> card (title_report.md §7) ─────────────────
+def test_vlm_extract_fills_an_otherwise_empty_card():
+    card = SignalCard(package="02", page=25, subtype=None)
+    assert card.is_weak()
+    apply_vlm_extract(card, {"page_marker": "Page 2 of 4", "form_code": "Form 123 (8-25-22)",
+                             "vendor": "Some Title Co"})
+    assert card.page_marker_candidates == [
+        {"n": 2, "y": 4, "raw": "Page 2 of 4", "source": "vlm"}
+    ]
+    assert card.printed_codes == ["[vlm:form_code] Form 123 (8-25-22)",
+                                  "[vlm:vendor] Some Title Co"]
+    assert not card.is_weak()
+
+
+def test_vlm_extract_ignores_missing_fields():
+    card = SignalCard(package="02", page=10, subtype=None)
+    apply_vlm_extract(card, {"page_marker": None, "form_code": None, "vendor": None})
+    assert card.page_marker_candidates == []
+    assert card.printed_codes == []
+
+
 # ── shipped policies stay loadable and layered ───────────────
-@pytest.mark.parametrize("name", ["urla", "credit_report"])
+@pytest.mark.parametrize("name", ["urla", "credit_report", "title_report"])
 def test_shipped_policy_signals_declare_layer(name):
     policy = load_policy(name)
     groups = []

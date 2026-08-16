@@ -59,29 +59,76 @@ def group_pages(
 
 
 # ── [4] ordering ─────────────────────────────────────────────
-def _try_marker_order(pages: list[int], cards_by_page: dict[int, SignalCard]) -> list[int] | None:
-    """Path A: single consistent denominator, bijective 1..Y == page count."""
-    y_values = [m["y"] for p in pages for m in cards_by_page[p].page_marker_candidates]
-    if not y_values:
+def _try_marker_order(
+    pages: list[int], cards_by_page: dict[int, SignalCard], policy: dict | None = None
+) -> tuple[list[int], str] | None:
+    """Path A: markers pin every page to a distinct slot. Returns (order, note).
+
+    Primary form needs a single consistent denominator and a bijection onto
+    1..Y. Some forms print no denominator at all (``Page 3`` with no total); a
+    policy may opt into accepting those via ``ordering.marker_no_denominator``,
+    which drops the Y check but still requires 1..K with no gap or repeat
+    (title_report.md §4-3).
+    """
+    y_values = [m["y"] for p in pages for m in cards_by_page[p].page_marker_candidates
+                if m["y"] is not None]
+    if y_values:
+        y = Counter(y_values).most_common(1)[0][0]
+        if y == len(pages):
+            assignment: dict[int, int] = {}
+            for p in pages:
+                ns = {m["n"] for m in cards_by_page[p].page_marker_candidates if m["y"] == y}
+                if len(ns) != 1:
+                    break
+                assignment[p] = ns.pop()
+            else:
+                if sorted(assignment.values()) == list(range(1, y + 1)):
+                    return (
+                        sorted(pages, key=lambda p: assignment[p]),
+                        f"page_marker 무결(1..{y}, 겹침·공백 없음)로 코드 정렬",
+                    )
+
+    if not (policy or {}).get("ordering", {}).get("marker_no_denominator"):
         return None
-    y = Counter(y_values).most_common(1)[0][0]
-    if y != len(pages):
-        return None
-    assignment: dict[int, int] = {}
+
+    bare: dict[int, int] = {}
     for p in pages:
-        ns = {m["n"] for m in cards_by_page[p].page_marker_candidates if m["y"] == y}
+        ns = {m["n"] for m in cards_by_page[p].page_marker_candidates if m["y"] is None}
         if len(ns) != 1:
             return None
-        assignment[p] = ns.pop()
-    if sorted(assignment.values()) != list(range(1, y + 1)):
+        bare[p] = ns.pop()
+    if sorted(bare.values()) != list(range(1, len(pages) + 1)):
         return None
-    return sorted(pages, key=lambda p: assignment[p])
+    return (
+        sorted(pages, key=lambda p: bare[p]),
+        f"분모 없는 page_marker가 1..{len(pages)} 연속·무중복 — 경로 A 변형으로 정렬",
+    )
+
+
+def _subtype_order_for(card: SignalCard, policy: dict) -> list[str]:
+    """Path B subtype order, per vendor when the policy declares one.
+
+    Two forms from different vendors have different internal orders, so a single
+    list cannot serve both (title_report.md §4-3). The card's vendor identity is
+    preferred; when a signal matched without identity (``identity_exempt``) the
+    vendor is recovered from whichever block declares the card's subtype.
+    """
+    ordering = policy.get("ordering", {})
+    per_vendor = ordering.get("per_vendor_subtype_order") or {}
+    if per_vendor:
+        for vkey in card.vendor_identity:
+            if vkey in per_vendor:
+                return per_vendor[vkey]
+        for order in per_vendor.values():
+            if card.subtype in order:
+                return order
+    return ordering.get("subtype_order", [])
 
 
 def _fallback_rank(card: SignalCard, policy: dict) -> tuple | None:
     """Path B rank: (subtype order, section/L number). None = no signal at all."""
     ordering = policy.get("ordering", {})
-    order = ordering.get("subtype_order", [])
+    order = _subtype_order_for(card, policy)
     nums: list[int] = []
     for pattern_key in ("section_rank_pattern", "l_rank_pattern"):
         pattern = ordering.get(pattern_key)
@@ -108,11 +155,10 @@ def order_instances(grouping: dict, cards: list[SignalCard], policy: dict) -> di
         pages = [p for p in inst.get("pages", []) if p in cards_by_page]
         entry = {"instance_id": inst.get("instance_id"), "unresolved": []}
 
-        ordered = _try_marker_order(pages, cards_by_page)
-        if ordered is not None:
-            entry["ordered_pages"] = ordered
+        by_marker = _try_marker_order(pages, cards_by_page, policy)
+        if by_marker is not None:
+            entry["ordered_pages"], entry["evidence"] = by_marker
             entry["method"] = "CODE_A_PAGE_MARKER"
-            entry["evidence"] = f"page_marker 무결(1..{len(pages)}, 겹침·공백 없음)로 코드 정렬"
         else:
             ranked, unresolved = [], []
             for p in pages:

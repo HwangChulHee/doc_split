@@ -58,6 +58,8 @@ def load_expected_pages(type_name: str, known_labels: list[str]) -> tuple[dict, 
         out[label] = {
             "expected": list(entry.get("expected", [])),
             "undecided": list(entry.get("undecided", [])),
+            # image-only pages: judged by the VLM check, never by the rule check
+            "expected_vlm": list(entry.get("expected_vlm", [])),
         }
     for label in known_labels[1:]:
         if label not in per_type:
@@ -72,20 +74,67 @@ def _by_page(classifications: list[dict], package: str) -> dict[int, dict]:
     return {c["page"]: c for c in classifications if c["package"] == package}
 
 
+def _duplicate_marker_failures(label: str, grouping: dict, markers: dict) -> list[dict]:
+    """Instances holding the same page-marker number twice.
+
+    Two pages claiming to be "page 3 of 5" cannot belong to one physical
+    document, so this is the objective form of the design's "duplicated marker
+    set means separate instances" rule.
+
+    Only markers carrying a denominator count. Bare ``Page N`` candidates are
+    swamped by false positives — a deed reference like "Book 577, Page 401"
+    looks identical to the extractor — and the design states the rule in terms
+    of a complete set ("Page 1 of 5" appearing twice) anyway.
+    """
+    out = []
+    for inst in grouping.get("instances", []):
+        seen: dict[int, list[int]] = {}
+        for page in inst.get("pages", []):
+            for n, y in markers.get(page, []):
+                if y is None:
+                    continue
+                seen.setdefault(n, []).append(page)
+        dupes = {n: pgs for n, pgs in seen.items() if len(pgs) > 1}
+        if dupes:
+            out.append({
+                "package": label,
+                "instance_id": inst.get("instance_id"),
+                "reason": "한 instance 안에 같은 마커 번호가 중복 — 설계 §4-1은 분리를 요구",
+                "duplicated_markers": {str(n): pgs for n, pgs in sorted(dupes.items())},
+            })
+    return out
+
+
 def run_verifications(
     type_name: str,
     classifications: list[dict],
-    grouping: dict | None,
-    ordering: dict | None,
+    groupings: dict,
+    orderings: dict,
     gt_rows: list[dict],
     gt_label: str,
     expected_pages: dict,
     prefix: str = "",
     universal_only: dict | None = None,
+    gt_exclude_source_pages: list[int] | None = None,
+    instance_expectations: dict | None = None,
+    markers_by_page: dict | None = None,
 ) -> list[CheckResult]:
     gt_pages = sorted(r["input_page"] for r in gt_rows if r["document_type"] == type_name)
     gt_by_page = {r["input_page"]: r for r in gt_rows}
     primary = _by_page(classifications, gt_label)
+    grouping = groupings.get(gt_label)
+    ordering = orderings.get(gt_label)
+
+    # Pages the design excludes from V1 by name (title_report.md §5-1: the page
+    # whose content was removed has no text evidence at all). They stay out of
+    # the counter-example set too — they are of this type, just unprovable.
+    excluded = {
+        r["input_page"]
+        for r in gt_rows
+        if r["document_type"] == type_name
+        and r["source_page"] in set(gt_exclude_source_pages or [])
+    }
+    v1_gt_pages = [p for p in gt_pages if p not in excluded]
 
     def name(n: int) -> str:
         return f"{prefix}V{n}"
@@ -93,7 +142,7 @@ def run_verifications(
     results: list[CheckResult] = []
 
     # ── V1: expected pages reach a rule grade ────────────────
-    targets = [(gt_label, p, primary.get(p)) for p in gt_pages]
+    targets = [(gt_label, p, primary.get(p)) for p in v1_gt_pages]
     for label, entry in expected_pages.items():
         pages = _by_page(classifications, label)
         targets += [(label, p, pages.get(p)) for p in entry["expected"]]
@@ -125,7 +174,7 @@ def run_verifications(
         (gt_label, p, c) for p, c in primary.items() if p not in set(gt_pages)
     ]
     for label, entry in expected_pages.items():
-        skip = set(entry["expected"]) | set(entry["undecided"])
+        skip = set(entry["expected"]) | set(entry["undecided"]) | set(entry["expected_vlm"])
         others += [(label, p, c) for p, c in _by_page(classifications, label).items() if p not in skip]
 
     v2_fail = [
@@ -148,7 +197,7 @@ def run_verifications(
                     f"비-{type_name} {len(others)}p 에서 supportive≥2 동시 성립 {len(v3_fail)}건", v3_fail)
     )
 
-    # ── V4: grouping + ordering against GT ───────────────────
+    # ── V4: grouping + ordering against GT (+ per-package instance counts) ──
     if grouping is None or ordering is None:
         results.append(CheckResult(name(4), False, "SKIPPED (--no-llm — 그룹핑 미수행)"))
     else:
@@ -159,8 +208,10 @@ def run_verifications(
                             "instances": [i.get("pages") for i in instances]})
         else:
             got = sorted(instances[0].get("pages", []))
-            if got != gt_pages:
-                v4_fail.append({"reason": "instance 페이지 집합 불일치", "got": got, "expected": gt_pages})
+            if got != v1_gt_pages:
+                v4_fail.append({"reason": "instance 페이지 집합 불일치",
+                                "got": got, "expected": v1_gt_pages,
+                                "note": f"검증 제외 페이지 {sorted(excluded)}는 기대값에서 뺐다"})
         if grouping.get("unresolved_pages"):
             v4_fail.append({"reason": "unresolved_pages 존재", "pages": grouping["unresolved_pages"]})
         if not v4_fail:
@@ -169,29 +220,84 @@ def run_verifications(
             if seq != sorted(seq):
                 v4_fail.append({"reason": "순서 불일치", "ordered_input_pages": ordered,
                                 "gt_source_pages": seq})
+
+        # Packages without an answer key can still assert a shape (instance
+        # count, and whether the design requires the instances to be related).
+        for label, spec in (instance_expectations or {}).items():
+            g = groupings.get(label)
+            if g is None:
+                v4_fail.append({"package": label, "reason": "그룹핑 결과 없음 (범위 밖일 수 있음)"})
+                continue
+            got_n = len(g.get("instances", []))
+            if got_n != spec["instances"]:
+                v4_fail.append({"package": label,
+                                "reason": f"instance 수 {got_n} (기대 {spec['instances']})",
+                                "instances": [i.get("pages") for i in g.get("instances", [])]})
+            if spec.get("require_related_to") and not any(
+                i.get("related_to") for i in g.get("instances", [])
+            ):
+                v4_fail.append({"package": label, "reason": "related_to 기록 없음 (설계 §4-1 요구)"})
+            # An instance count alone can be right for the wrong reason, so the
+            # design's actual rule is checked directly: a marker number may not
+            # repeat inside one instance (title_report.md §4-1).
+            if spec.get("no_duplicate_markers"):
+                v4_fail += _duplicate_marker_failures(
+                    label, g, (markers_by_page or {}).get(label, {})
+                )
+
+        shape = f"{gt_label} 1 instance" + "".join(
+            f" / {lb} {sp['instances']} instance" + ("+related_to" if sp.get("require_related_to") else "")
+            for lb, sp in sorted((instance_expectations or {}).items())
+        )
         results.append(
             CheckResult(name(4), not v4_fail,
-                        f"{gt_label} {type_name} 1 instance·GT 순서 일치" if not v4_fail
-                        else "그룹핑/순서 불일치", v4_fail)
+                        f"{shape} · GT 순서 일치" if not v4_fail else "그룹핑/순서 불일치", v4_fail)
         )
 
     # ── V5 (CREDIT only): vendor-independent coverage, measure only ──
     if universal_only is not None:
-        reached = [p for p in gt_pages if universal_only.get(p) in ("RULE_HIGH", "RULE_MEDIUM")]
+        # Measured over the same population V1 judges, so the two are comparable.
+        reached = [p for p in v1_gt_pages if universal_only.get(p) in ("RULE_HIGH", "RULE_MEDIUM")]
         by_grade: dict[str, int] = {}
-        for p in gt_pages:
+        for p in v1_gt_pages:
             by_grade[universal_only.get(p, "MISSING")] = by_grade.get(universal_only.get(p, "MISSING"), 0) + 1
         results.append(
             CheckResult(
                 name(5), True,
-                f"[측정] universal 신호만으로 {len(reached)}/{len(gt_pages)}p 도달 "
+                f"[측정] universal 신호만으로 {len(reached)}/{len(v1_gt_pages)}p 도달 "
                 f"(벤더 레이어 제외 — 합격 기준 없음)",
                 measurement={
-                    "reached": len(reached), "total": len(gt_pages),
+                    "reached": len(reached), "total": len(v1_gt_pages),
                     "pages_reached": reached,
-                    "pages_missed": [p for p in gt_pages if p not in reached],
+                    "pages_missed": [p for p in v1_gt_pages if p not in reached],
                     "grade_distribution": by_grade,
                 },
+            )
+        )
+
+    # ── V6 (types with image pages): VLM classification ──────
+    vlm_targets = [
+        (label, p)
+        for label, entry in expected_pages.items()
+        for p in entry["expected_vlm"]
+    ]
+    if vlm_targets:
+        v6_fail = []
+        for label, page in vlm_targets:
+            c = _by_page(classifications, label).get(page)
+            if c is None or c.get("type") != type_name:
+                v6_fail.append({
+                    "package": label, "page": page,
+                    "grade": c["grade"] if c else "MISSING",
+                    "got_type": c.get("type") if c else None,
+                    "vlm": c.get("llm") if c else None,
+                })
+        results.append(
+            CheckResult(
+                name(6), not v6_fail,
+                f"스캔 {len(vlm_targets)}p 중 {len(vlm_targets) - len(v6_fail)}p "
+                f"VLM이 {type_name}으로 판정",
+                v6_fail,
             )
         )
     return results
@@ -227,6 +333,8 @@ def render_report(
     subtype_counts: dict | None = None,
     conflicts: list[dict] | None = None,
     warnings: list[str] | None = None,
+    excluded_pages: list[dict] | None = None,
+    vlm_pages: list[dict] | None = None,
 ) -> str:
     lines = [f"# {type_name} 파이프라인 리포트", ""]
     if warnings:
@@ -244,6 +352,20 @@ def render_report(
         if r.failures:
             lines += [f"### {r.name} 실패 상세", "", "```json",
                       json.dumps(r.failures, ensure_ascii=False, indent=2), "```", ""]
+
+    if vlm_pages is not None:
+        lines += ["## VLM 판독 결과 (텍스트 레이어 없는 페이지)", ""]
+        lines += (["```json", json.dumps(vlm_pages, ensure_ascii=False, indent=2), "```"]
+                  if vlm_pages else ["대상 없음"])
+        lines.append("")
+
+    if excluded_pages is not None:
+        lines += ["## 검증 제외 페이지의 실제 처리 결과", "",
+                  "설계가 V1에서 제외하도록 지정한 페이지다. 제외했다고 처리 결과를 "
+                  "감추지 않기 위해 여기에 그대로 기록한다.", ""]
+        lines += (["```json", json.dumps(excluded_pages, ensure_ascii=False, indent=2), "```"]
+                  if excluded_pages else ["대상 없음"])
+        lines.append("")
 
     if layers:
         lines += ["## 신호 계층별 기여도", "",

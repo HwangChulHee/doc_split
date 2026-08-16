@@ -20,3 +20,11 @@ CREDIT_REPORT:
     # p31은 The Work Number(고용 검증) 조회 결과로 판명됨. INCOME 설계 시 결정한다
     # (docs/classification/credit_report.md §4-3 보류 항목).
     undecided: [31]
+
+TITLE_REPORT:
+  "02":
+    # ALTA Commitment Schedule 5장 × 2벌 (분석 §6-1의 쌍 대응)
+    expected: [0, 2, 4, 6, 8, 14, 16, 21, 32, 41]
+    # 텍스트 0자 스캔본 — 규칙 검증(T-V1)이 아니라 VLM 검증(T-V6)의 대상이다.
+    # 규칙으로 잡힐 수 없는 페이지를 규칙 검증에 섞으면 실패의 의미가 흐려진다.
+    expected_vlm: [10, 25, 39]
