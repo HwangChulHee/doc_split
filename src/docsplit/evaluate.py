@@ -244,6 +244,24 @@ def run_verifications(
                 v4_fail += _duplicate_marker_failures(
                     label, g, (markers_by_page or {}).get(label, {})
                 )
+            # Boilerplate shared by every copy cannot be attributed to one of
+            # them, so "unassigned" is the correct output (title_report.md
+            # §4-2-1). The page list lives in config, not here.
+            if spec.get("vlm_pages_unresolved"):
+                want = set(expected_pages.get(label, {}).get("expected_vlm", []))
+                got = set(g.get("unresolved_pages", []))
+                if want - got:
+                    v4_fail.append({
+                        "package": label,
+                        "reason": "약관(공통 인쇄물) 페이지가 unresolved에 없음 — 설계 §4-2-1은 귀속 미정을 요구",
+                        "expected_unresolved": sorted(want),
+                        "got_unresolved": sorted(got),
+                        "assigned_instead": {
+                            i.get("instance_id"): sorted(set(i.get("pages", [])) & (want - got))
+                            for i in g.get("instances", [])
+                            if set(i.get("pages", [])) & (want - got)
+                        },
+                    })
 
         shape = f"{gt_label} 1 instance" + "".join(
             f" / {lb} {sp['instances']} instance" + ("+related_to" if sp.get("require_related_to") else "")

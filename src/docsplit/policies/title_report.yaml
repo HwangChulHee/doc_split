@@ -232,6 +232,7 @@ verification:
       instances: 2               # Commitment 두 벌 — 마커 세트 중복 완비 (설계 §4-1)
       require_related_to: true   # 분리하되 관계를 기록해야 한다
       no_duplicate_markers: true # 한 instance 안에 같은 마커 번호가 두 번 나오면 안 된다
+      vlm_pages_unresolved: true # 약관(공통 인쇄물)은 귀속 미정이 정답 (설계 §4-2-1)
 
 # ── [4] 순서 정렬 (설계 §4-3) ────────────────────────────────
 ordering:
