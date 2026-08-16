@@ -1,12 +1,13 @@
 """Stages [3] and [4]: LLM grouping, then per-instance ordering.
 
-Ordering (docs/classification/urla.md §6):
+Ordering (urla.md §6, credit_report.md §6-2):
   Path A (code): page markers form an intact 1..Y set (no dup/gap, Y = page
                  count) -> sort by marker.
-  Path B: markers incomplete/absent -> standard section order from the policy
-          (subtype order, then section/L number). Pages without any section
-          signal fall through to
-  Path C: order UNRESOLVED.
+  Path B (code): markers incomplete/absent -> policy fallback order. For URLA
+                 that is the GSE section order (standard-backed); for CREDIT it
+                 is the subtype order, which is observation-backed only and has
+                 no standard guarantee (credit_report.md §8-3).
+  Path C: no ordering signal at all -> order UNRESOLVED.
 """
 
 from __future__ import annotations
@@ -33,9 +34,10 @@ def group_pages(
         if attached
         else "(없음)"
     )
+    prompt_name = policy.get("prompts", {}).get("group", "group_urla")
     result = llm.complete_json(
         stage="grouping",
-        prompt_name="group_urla",
+        prompt_name=prompt_name,
         variables={
             "expected_type": policy["type"],
             "cards_json": json.dumps([c.to_dict() for c in cards], ensure_ascii=False, indent=1),
@@ -59,11 +61,7 @@ def group_pages(
 # ── [4] ordering ─────────────────────────────────────────────
 def _try_marker_order(pages: list[int], cards_by_page: dict[int, SignalCard]) -> list[int] | None:
     """Path A: single consistent denominator, bijective 1..Y == page count."""
-    y_values = [
-        m["y"]
-        for p in pages
-        for m in cards_by_page[p].page_marker_candidates
-    ]
+    y_values = [m["y"] for p in pages for m in cards_by_page[p].page_marker_candidates]
     if not y_values:
         return None
     y = Counter(y_values).most_common(1)[0][0]
@@ -80,17 +78,20 @@ def _try_marker_order(pages: list[int], cards_by_page: dict[int, SignalCard]) ->
     return sorted(pages, key=lambda p: assignment[p])
 
 
-def _section_rank(card: SignalCard, policy: dict) -> tuple | None:
-    """Path B rank: (subtype order, section/L number). None = no signal."""
-    order = policy["ordering"]["subtype_order"]
-    sec_pat = re.compile(policy["ordering"]["section_rank_pattern"])
-    l_pat = re.compile(policy["ordering"]["l_rank_pattern"])
-    nums = []
-    for title in card.sections_found:
-        t = title.lower()
-        m = sec_pat.search(t) or l_pat.search(t)
-        if m:
-            nums.append(int(m.group(1)))
+def _fallback_rank(card: SignalCard, policy: dict) -> tuple | None:
+    """Path B rank: (subtype order, section/L number). None = no signal at all."""
+    ordering = policy.get("ordering", {})
+    order = ordering.get("subtype_order", [])
+    nums: list[int] = []
+    for pattern_key in ("section_rank_pattern", "l_rank_pattern"):
+        pattern = ordering.get(pattern_key)
+        if not pattern:
+            continue
+        pat = re.compile(pattern)
+        for title in card.sections_found:
+            m = pat.search(title.lower())
+            if m:
+                nums.append(int(m.group(1)))
     if card.subtype is None and not nums:
         return None
     sub_rank = order.index(card.subtype) if card.subtype in order else len(order)
@@ -99,30 +100,34 @@ def _section_rank(card: SignalCard, policy: dict) -> tuple | None:
 
 def order_instances(grouping: dict, cards: list[SignalCard], policy: dict) -> dict:
     cards_by_page = {c.page: c for c in cards}
+    fallback_note = policy.get("ordering", {}).get(
+        "fallback_evidence", "표준 섹션 순서로 정렬"
+    )
     out = {"package": grouping.get("package"), "instances": []}
     for inst in grouping.get("instances", []):
-        pages = list(inst.get("pages", []))
+        pages = [p for p in inst.get("pages", []) if p in cards_by_page]
         entry = {"instance_id": inst.get("instance_id"), "unresolved": []}
 
         ordered = _try_marker_order(pages, cards_by_page)
         if ordered is not None:
             entry["ordered_pages"] = ordered
             entry["method"] = "CODE_A_PAGE_MARKER"
-            entry["evidence"] = (
-                f"page_marker 무결(1..{len(pages)}, 겹침·공백 없음)로 코드 정렬"
-            )
+            entry["evidence"] = f"page_marker 무결(1..{len(pages)}, 겹침·공백 없음)로 코드 정렬"
         else:
             ranked, unresolved = [], []
             for p in pages:
-                r = _section_rank(cards_by_page[p], policy)
-                (ranked if r is not None else unresolved).append((r, p) if r is not None else p)
+                r = _fallback_rank(cards_by_page[p], policy)
+                if r is None:
+                    unresolved.append(p)
+                else:
+                    ranked.append((r, p))
             ranked.sort()
             entry["ordered_pages"] = [p for _, p in ranked]
             entry["unresolved"] = unresolved
-            entry["method"] = "CODE_B_SECTION_ORDER"
+            entry["method"] = "CODE_B_FALLBACK_ORDER"
             entry["evidence"] = (
-                "page_marker 불완전 → 표준 섹션 순서(Section 1→9 → 부속 → L1→L4)로 정렬"
-                + (f"; 섹션 신호 없는 {len(unresolved)}페이지는 UNRESOLVED" if unresolved else "")
+                f"page_marker 불완전 → {fallback_note}"
+                + (f"; 순서 신호 없는 {len(unresolved)}페이지는 UNRESOLVED" if unresolved else "")
             )
         out["instances"].append(entry)
     return out

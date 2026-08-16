@@ -1,16 +1,21 @@
 """Stage [2]: signal-card extraction for grouping.
 
-Philosophy (docs/classification/urla.md §4): the extractor collects
-candidates, including false positives — judgment belongs to stage [3].
+Philosophy (docs/classification/urla.md §4, credit_report.md §5): the extractor
+collects candidates, including false positives — judgment belongs to stage [3].
+If a renderer changes and signals stop matching, cards get thin and stage [3]
+falls back to raw text on its own.
 
-Extraction paths per field:
-  name_candidates   AcroForm widgets first; fallback to label-anchor geometry
-                    (same visual line, right of the label, narrow window)
-  id_candidates     regex over normalized text; "trusted" flag when the page
-                    carries the top identification block (S2)
-  page_markers      regex incl. body false positives, collected as-is
-  sections_found    reuse of stage-[1] S3/S4 matches (no extra scan)
-  printed_codes     literal line presence (material, not a rule)
+Everything extracted here is policy-driven (``cards:`` section):
+
+======================  =======================================================
+``id_patterns``         {field name: regex} over normalized page text
+``date_patterns``       regexes collected into ``date_candidates``
+``page_marker_pattern``  ``N of Y`` variants (body false positives kept)
+``name_anchor``         label text; values are read from the same visual line
+``printed_codes``       literal lines to record (material, never a rule)
+``signal_phrase_fields``  signal IDs whose matched phrases go to sections_found
+``id_block_signal``     signal ID that marks a trusted identification block
+======================  =======================================================
 """
 
 from __future__ import annotations
@@ -29,8 +34,10 @@ class SignalCard:
     package: str
     page: int
     subtype: str | None
+    vendor_identity: list[str] = field(default_factory=list)
     name_candidates: list[str] = field(default_factory=list)
     id_candidates: dict = field(default_factory=dict)
+    date_candidates: list[str] = field(default_factory=list)
     page_marker_candidates: list[dict] = field(default_factory=list)
     sections_found: list[str] = field(default_factory=list)
     printed_codes: list[str] = field(default_factory=list)
@@ -40,8 +47,12 @@ class SignalCard:
         return asdict(self)
 
     def is_weak(self) -> bool:
-        """No names, no ids, no markers — grouping gets raw text attached."""
-        return not (self.name_candidates or any(self.id_candidates.values()) or self.page_marker_candidates)
+        """No names, no ids, no markers — grouping gets this page's raw text."""
+        return not (
+            self.name_candidates
+            or any(self.id_candidates.values())
+            or self.page_marker_candidates
+        )
 
 
 def _names_from_widgets(pdf_page: pymupdf.Page) -> list[str]:
@@ -54,8 +65,14 @@ def _names_from_widgets(pdf_page: pymupdf.Page) -> list[str]:
 
 
 def _names_from_anchor(pdf_page: pymupdf.Page, cfg: dict, exclude: set[str]) -> list[str]:
+    """Values sitting on the same visual line as the label, to its right.
+
+    Text order in the extracted layer does not follow the visual layout, so
+    "the line after the label" is not reliable — geometry is.
+    """
     anchor = normalize(cfg["name_anchor"])
-    wy, wx = cfg["name_window_pt"]["y"], cfg["name_window_pt"]["x"]
+    window = cfg.get("name_window_pt", {"y": 5, "x": 320})
+    wy, wx = window["y"], window["x"]
     out: list[str] = []
     d = pdf_page.get_text("dict")
     lines = [
@@ -95,29 +112,43 @@ def build_card(
     policy: dict,
     pdf_page: pymupdf.Page | None,
 ) -> SignalCard:
-    cfg = policy["cards"]
+    cfg = policy.get("cards", {})
     card = SignalCard(package=package, page=page_index, subtype=subtype)
+    card.vendor_identity = list(signal_result.identities)
 
-    marker_pat = re.compile(cfg["page_marker_pattern"])
-    codes = {normalize(c) for c in cfg["printed_codes"]}
-
-    if pdf_page is not None:
+    codes = {normalize(c) for c in cfg.get("printed_codes", [])}
+    if pdf_page is not None and cfg.get("name_anchor"):
         card.name_candidates = _names_from_widgets(pdf_page)
         if not card.name_candidates:
             card.name_candidates = _names_from_anchor(pdf_page, cfg, exclude=codes)
 
-    loans = sorted(set(re.findall(cfg["loan_number_pattern"], page.fulltext)))
-    ulis = sorted(set(re.findall(cfg["uli_pattern"], page.fulltext)))
-    card.id_candidates = {"loan_number": loans, "uli": [u for u in ulis if not u.isdigit()]}
-    card.id_block_present = any(h.signal_id == "S2" for h in signal_result.supportive)
+    for fieldname, pattern in (cfg.get("id_patterns") or {}).items():
+        values = sorted(set(re.findall(pattern, page.fulltext)))
+        if fieldname == "uli":  # digit-only strings are loan numbers, not ULIs
+            values = [v for v in values if not v.isdigit()]
+        card.id_candidates[fieldname] = values
 
-    for m in marker_pat.finditer(page.fulltext):
-        card.page_marker_candidates.append(
-            {"n": int(m.group(1)), "y": int(m.group(2)), "raw": m.group(0)}
-        )
+    dates: list[str] = []
+    for pattern in cfg.get("date_patterns", []):
+        dates += re.findall(pattern, page.fulltext)
+    card.date_candidates = sorted(set(dates))
+
+    if cfg.get("page_marker_pattern"):
+        for m in re.finditer(cfg["page_marker_pattern"], page.fulltext):
+            card.page_marker_candidates.append(
+                {"n": int(m.group(1)), "y": int(m.group(2)), "raw": m.group(0)}
+            )
 
     card.sections_found = sorted(
-        {p for sid in ("S3", "S4") for p in signal_result.titles_matched.get(sid, [])}
+        {
+            p
+            for sid in cfg.get("signal_phrase_fields", [])
+            for p in signal_result.titles_matched.get(sid, [])
+        }
     )
-    card.printed_codes = [c for c in cfg["printed_codes"] if normalize(c) in page.lines]
+    card.printed_codes = [c for c in cfg.get("printed_codes", []) if normalize(c) in page.lines]
+    id_block_signal = cfg.get("id_block_signal")
+    card.id_block_present = bool(id_block_signal) and any(
+        h.signal_id == id_block_signal for h in signal_result.all_hits()
+    )
     return card

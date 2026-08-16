@@ -80,6 +80,7 @@ S ≥ 2 (서로 다른 ID)      → URLA 판정        [RULE_MEDIUM]
 S = 1                    → LLM 이관         [DEFER_LLM]
 신호 0                    → 타 유형과 경합    [NO_SIGNAL]
 텍스트 없음               → VLM 이관         [DEFER_VLM]
+인접 문서 문구 성립        → 유형 배제        [EXCLUDED_ADJACENT]
 ```
 
 같은 ID 반복(예: S5 라벨 3개)은 1개로 센다.
@@ -102,6 +103,10 @@ NFKC → 가운뎃점류 통일 → dash류 통일 → 공백 축약 → 소문�
 
 `Supplemental Consumer Information Form` 또는 `Form 1103` 존재 시 SCIF로 식별
 (URLA 아님. 라벨링 정책은 등장 시 결정. 데이터셋 미존재 확인됨).
+
+이 경우 등급은 **`EXCLUDED_ADJACENT`** 이며 `flags.excluded_as` 에 어떤 인접 문서로
+배제됐는지 기록한다 (v2에서 확정). `NO_SIGNAL`("신호가 없다")과 "인접 문서로 판별되어
+이 유형에서 배제됐다"는 서로 다른 사실이므로 등급을 구분한다.
 
 ### 3-7. 규칙화 금지 신호 (명시)
 
@@ -188,13 +193,17 @@ NFKC → 가운뎃점류 통일 → dash류 통일 → 공백 축약 → 소문�
 
 ```text
 경로 A (코드): instance의 page_marker가 1..Y 무결(겹침·공백 없음) → 그대로 정렬
-경로 B (LLM): 불완전/부재 → 표준 섹션 순서로 추론
+경로 B (코드): 불완전/부재 → 표준 섹션 순서로 정렬
               Section 1→9 → 부속(Addendum·Continuation) → L1→L4
               (이 폴백은 GSE 양식 구조가 보장 — 표준 근거 있는 폴백)
 경로 C: 섹션 신호도 없는 페이지 → 순서 UNRESOLVED
 ```
 
 경로 A 채택 시에도 evidence에 "page_marker 무결로 코드 정렬" 기록.
+
+**경로 B는 코드가 수행한다** (v2에서 확정). 섹션 순서는 표준이 고정한 결정론적
+순서이므로 LLM 추론이 불필요하며, 순서 정렬용 프롬프트는 만들지 않는다.
+섹션 신호가 없는 페이지만 경로 C로 넘긴다.
 
 ## 7. 검증 절차 (튜닝 금지)
 

@@ -8,10 +8,12 @@ type: URLA_1003
 # decisive: 단독 확정 (D ≥ 1 → RULE_HIGH)
 decisive:
   D1:
+    layer: normative
     description: "푸터 타이틀 (컴포넌트 접미 변형은 base 문구를 포함하므로 base로 매칭)"
     phrases:
       - "Uniform Residential Loan Application"
   D2:
+    layer: normative
     description: "푸터 폼 ID (구분자 ·/•는 normalize에서 통일됨)"
     phrases:
       - "Freddie Mac Form 65 · Fannie Mae Form 1003"
@@ -19,16 +21,19 @@ decisive:
 # supportive: 조합 판정 (서로 다른 ID S ≥ 2 → RULE_MEDIUM, S = 1 → DEFER_LLM)
 supportive:
   S1:
+    layer: normative
     description: "폼 버전 표기 — 개정 대비 패턴 매칭 (현행 1/2021)"
     patterns:
       - 'effective \d{1,2}/\d{4}'
   S2:
+    layer: normative
     description: "상단 식별 블록 — SCIF와 공유하므로 단독 확정 불가. 3문구 전부 필요"
     require_all:
       - "To be completed by the Lender:"
       - "Lender Loan No./Universal Loan Identifier"
       - "Agency Case No."
   S3:
+    layer: normative
     description: "본체 섹션 제목 (철자 변형 포함)"
     phrases:
       - "Section 1: Borrower Information"
@@ -42,6 +47,7 @@ supportive:
       - "Section 8: Demographic Information"
       - "Section 9: Loan Originator Information"
   S4:
+    layer: normative
     description: "Lender Loan Information 섹션 제목"
     phrases:
       - "L1. Property and Loan Information"
@@ -49,6 +55,7 @@ supportive:
       - "L3. Mortgage Loan Information"
       - "L4. Qualifying the Borrower – Minimum Required Funds or Cash Back"
   S5:
+    layer: normative
     description: "번호+표준 라벨 세트 (번호 토큰 단독은 신호 아님 — 전체 문구 매칭)"
     phrases:
       - "1a. Personal Information"
@@ -93,10 +100,13 @@ adjacent_exclusions:
 
 # ── [2] 신호 카드 추출 (설계 §4) ──────────────────────────────
 cards:
-  loan_number_pattern: '\b\d{9}\b'
-  uli_pattern: '\b[a-z0-9]{20,35}\b'   # 20–35 영숫자 (순수 숫자는 코드에서 제외)
+  id_patterns:
+    loan_number: '\b\d{9}\b'
+    uli: '\b[a-z0-9]{20,35}\b'   # 20–35 영숫자 (순수 숫자는 코드에서 제외)
   page_marker_pattern: '(?:page\s*)?(\d{1,3})\s+of\s+(\d{1,3})'
   name_anchor: "Borrower Name"       # "Borrower Name:" / "Borrower Name(s):" 포함 매칭
+  signal_phrase_fields: [S3, S4]     # 섹션 제목 매칭 결과를 카드로 재사용
+  id_block_signal: S2                # 상단 식별 블록 보유 여부
   name_window_pt: { y: 5, x: 320 }   # 앵커와 같은 시각적 라인, 라벨 오른쪽 윈도우
   printed_codes:                     # 리터럴 라인 일치 — 분류 규칙 아님, 재료 수집
     - "GURLA20S"
@@ -105,7 +115,11 @@ cards:
     - "0718"
 
 # ── [4] 순서 정렬 폴백 (설계 §6 경로 B: 표준 섹션 순서) ─────────
+prompts:
+  group: group_urla
+
 ordering:
+  fallback_evidence: "표준 섹션 순서(Section 1→9 → 부속 → L1→L4)로 정렬 — GSE 양식 구조가 보장"
   subtype_order:
     - "main"
     - "additional_borrower"
