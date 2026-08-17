@@ -37,7 +37,8 @@ from ..ingest.discover import discover_inputs
 from ..output.ground_truth import build_ground_truth
 from ..llm.client import LLMClient, LLMDisabled
 from ..rules.normalize import PageText
-from ..ingest.pdf_parser import render_page_png, slugify
+from ..ingest.pdf_parser import slugify
+from ..ingest.render import render_upright_png
 from ..rules.signals import available_policies, evaluate_universal_only, load_policy
 from ..rules.classify import grade_for
 
@@ -255,15 +256,17 @@ def _resolve_image_pages_by_vlm(r: _Run, classified: _Classified
                                 ) -> dict[tuple[str, int], dict]:
     """Returns what the model read off each image page, for the card stage.
 
-    render_page_png ignores the stored /Rotate: on these scans it disagrees
-    with the content (known_limits.md §5).
+    render_upright_png decides the rotation from the rendered pixels rather than
+    from the stored /Rotate, which on these scans disagrees with the content
+    (known_limits.md §5).
     """
     extracts: dict[tuple[str, int], dict] = {}
     for c in classified.rows:
         if c["grade"] != "DEFER_VLM" or c["package"] not in r.scope or r.llm is None:
             continue
         with pymupdf.open(r.packages[c["package"]][0]) as pdf:
-            png = render_page_png(pdf[c["page"]], VLM_DPI)
+            png, orientation = render_upright_png(pdf[c["page"]], VLM_DPI)
+        c["render_orientation"] = orientation.to_dict()
         parsed = r.llm.complete_json_vision(
             stage="classify_page_vision",
             prompt_name="classify_page_vision",

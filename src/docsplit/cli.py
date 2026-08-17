@@ -24,7 +24,8 @@ from .llm.grouping import group_pages, order_instances
 from .output.ground_truth import build_ground_truth
 from .llm.client import DEFAULT_MODEL, LLMClient, LLMDisabled
 from .ingest.parse import export_inspection, export_jsonl
-from .ingest.pdf_parser import parse_pdf, render_page_png
+from .ingest.pdf_parser import parse_pdf
+from .ingest.render import render_upright_png
 from .output.results import (
     score_against_gt,
     write_classification_csv,
@@ -223,6 +224,9 @@ def _classify_by_vlm(verdicts: dict[str, list], pdf_by_label: dict[str, Path],
 
     Those extracts become card fields later — a VLM page has no text layer, so
     its signal card would otherwise be empty and ungroupable.
+
+    The render's rotation is decided from the pixels (ingest/render.py) and the
+    evidence for it is kept on the verdict's flags.
     """
     need = [(lb, v) for lb, vs in verdicts.items() for v in vs
             if v.rule_grade == "DEFER_VLM"]
@@ -232,7 +236,8 @@ def _classify_by_vlm(verdicts: dict[str, list], pdf_by_label: dict[str, Path],
         return extracts
     for label, v in need:
         with pymupdf.open(pdf_by_label[label]) as pdf:
-            png = render_page_png(pdf[v.page], VLM_DPI)
+            png, orientation = render_upright_png(pdf[v.page], VLM_DPI)
+        v.flags["render_orientation"] = orientation.to_dict()
         parsed = llm.complete_json_vision(
             stage="classify_page_vision",
             prompt_name="classify_page_vision",
