@@ -76,8 +76,11 @@
 ### 규칙을 만든 과정
 
 **1. 준거 문서 확보** — 유형별 공식 표준 양식·정부 발행물·벤더 제품 문서를
-직접 확보했습니다. 문서는 [`data/reference/`](data/reference/)에, 출처는
-[`data/reference/SOURCES.md`](data/reference/SOURCES.md)에 있습니다.
+직접 확보했습니다. 문서는 [`data/reference/`](data/reference/)에, 출처는 유형별
+`SOURCES.md`([URLA](data/reference/urla/SOURCES.md) ·
+[CREDIT](data/reference/credit/xactus/SOURCES.md) ·
+[TITLE](data/reference/title/SOURCES.md) ·
+[INCOME](data/reference/income/SOURCES.md))에 있습니다.
 
 | 유형 | 확보한 준거 문서 |
 |---|---|
