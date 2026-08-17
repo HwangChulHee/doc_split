@@ -263,10 +263,16 @@ URLA         CREDIT          TITLE                INCOME
 | Legal Description | ✅ (Prelim 내 1장) | ✅ (Commitment 내) |
 | Plat Map | △ 자리만 (내용 제거됨) | ❌ |
 | Commitment Conditions 약관 | ❌ | ✅ 3장 — **전부 스캔본(텍스트 없음), 회전 상태** |
+| 소유권 이전 이력 조회 (24개월) | ❌ | ✅ 1장 (구현 중 확인 — 아래 주) |
 | Policy / CPL | ❌ | ❌ |
 
 **유일하게 두 패키지가 서로 다른 문서로 커버되는 유형** — pkg01에 과적합한
 규칙(벤더명, CLTA 문구 등)은 pkg02에서 전부 실패한다.
+
+마지막 행은 이 표를 처음 쓸 때 빠져 있었다. 구현 단계에서 LLM이 근거를 들어
+TITLE로 판정했고(직전 24개월의 소유권 이전 내역 조회 결과), 검토 결과 맞다고
+보아 반영했다. pkg02 TITLE 총 14장(5×2벌 + 약관 3 + 이 1장)은 이 행까지
+합쳐야 맞는다. 어느 Commitment에 붙는지는 판별 근거가 없어 미배정으로 남는다.
 
 또한 pkg02에는 거의 동일한 Commitment Schedule 세트가 **두 벌** 존재
 (유사도 99%+, 금액 등만 상이) — "같은 유형·같은 양식·다른 문서 instance"의 실례.
@@ -350,6 +356,13 @@ P&L               Paystub, W-2,       1040, 1120, K-1     IRS Transcript,
 | ③ | 1040 / 1099 / K-1 등 | ❌ | ❌ |
 | ④ | IRS Wage & Income Transcript | ❌ | ✅ 4장 (2장짜리 × 2벌) |
 | ④ | 검증 대행 리포트 (CoreLogic, ICE 경유) | ❌ | ✅ 1장 |
+| ④ | 고용 이력 조회 결과 (신용 벤더가 배달) | ❌ | ✅ 1장 (경계 문서 — 아래 주) |
+
+마지막 행은 라벨링 정책상 INCOME(고용 확인)이지만, 발행·배달 경로가 신용조회
+벤더라 파이프라인은 CREDIT으로 판정한다. 고치지 않기로 한 이유는
+`classification/known_limits.md` §1에 적었다. 그래서 pkg02 INCOME 산출은
+transcript 4장 중 3장 + 검증 대행 1장 = **4장**으로 집계된다 (transcript 나머지
+1장은 껍데기라 미판정).
 
 - **두 패키지의 INCOME 문서가 하나도 겹치지 않는다.** 그것도 신뢰도 축의 양극단
   (가장 비정형인 P&L ↔ 가장 정형인 Transcript).
