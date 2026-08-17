@@ -33,7 +33,7 @@ from .evaluate import (
 )
 from .llm.grouping import group_pages, order_instances
 from .ingest.discover import discover_inputs
-from .ground_truth import build_ground_truth
+from .output.ground_truth import build_ground_truth
 from .llm.client import LLMClient, LLMDisabled
 from .rules.normalize import PageText
 from .ingest.pdf_parser import render_page_png, slugify
