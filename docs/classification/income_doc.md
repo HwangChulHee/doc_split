@@ -135,7 +135,7 @@ INCOME 정책 등장으로 다음 경합이 **의도적으로** 발생한다:
 
 ## 4. 그룹핑 (LLM 위임)
 
-프롬프트: `prompts/group_income.md`
+프롬프트: `llm/prompts/group_income.md`
 
 INCOME 그룹핑의 특수성: **하위군이 곧 문서 경계에 가깝다** (transcript 2벌,
 검증 리포트 1장, P&L 1장 — 서로 묶일 일이 없는 낱개들).

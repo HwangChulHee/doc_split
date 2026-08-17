@@ -182,7 +182,7 @@ CREDIT 카드 스키마 (URLA 카드에 더해):
 
 ## 6. 그룹핑·순서 (LLM 위임)
 
-프롬프트: `prompts/group_credit.md`
+프롬프트: `llm/prompts/group_credit.md`
 
 ### 6-1. 그룹핑 지시 요지
 

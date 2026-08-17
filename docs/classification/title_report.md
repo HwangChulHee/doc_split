@@ -123,7 +123,7 @@ None이 사실의 반영이며, 순서는 마커(경로 A)가 책임진다.
 
 ## 4. 그룹핑 (LLM 위임) — 다중 instance 첫 실전
 
-프롬프트: `prompts/group_title.md`
+프롬프트: `llm/prompts/group_title.md`
 
 ### 4-1. 방침 (확정): 마커 중복 시 분리 + 관계 명시
 
@@ -259,7 +259,7 @@ p8은 T-V1에서 제외하고, 그 처리 결과(UNRESOLVED 또는 LLM 판정)�
 
 ```text
 렌더링: PyMuPDF pixmap (dpi 150) — 저장된 /Rotate 를 무시하고 정방향으로 렌더
-프롬프트: prompts/classify_page_vision.md (스텁 → 실물화)
+프롬프트: llm/prompts/classify_page_vision.md (스텁 → 실물화)
 모델: 동일 (gpt-5.4-mini, 비전 입력)
 지시: 텍스트 분류와 동일 원칙 — 5유형 중 판정, 이미지에서 읽은 문구를
       evidence로 인용, 확신 없으면 UNRESOLVED
