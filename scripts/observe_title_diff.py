@@ -45,7 +45,7 @@ import pymupdf
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
-from docsplit.normalize import PageText, match_phrase, normalize  # noqa: E402
+from docsplit.rules.normalize import PageText, match_phrase, normalize  # noqa: E402
 
 REF = REPO / "data/reference/title"
 ALTA_FORM = REF / "alta/alta_commitment_2021_floir.pdf"

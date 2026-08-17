@@ -23,8 +23,8 @@ from pathlib import Path
 
 import pymupdf
 
-from .cards import apply_vlm_extract, build_card
-from .classify import classify_page
+from .rules.cards import apply_vlm_extract, build_card
+from .rules.classify import classify_page
 from .evaluate import (
     layer_contribution,
     load_expected_pages,
@@ -35,10 +35,10 @@ from .grouping import group_pages, order_instances
 from .discover import discover_inputs
 from .ground_truth import build_ground_truth
 from .llm import LLMClient, LLMDisabled
-from .normalize import PageText
+from .rules.normalize import PageText
 from .pdf_parser import render_page_png, slugify
-from .signals import available_policies, evaluate_universal_only, load_policy
-from .classify import grade_for
+from .rules.signals import available_policies, evaluate_universal_only, load_policy
+from .rules.classify import grade_for
 
 PACKAGE_LABEL_RE = re.compile(r"^(\d+)\.")
 VLM_DPI = 150  # title_report.md §7 — enough to read headers/footers off a scan

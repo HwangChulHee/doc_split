@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .cards import apply_vlm_extract, build_card
+from .rules.cards import apply_vlm_extract, build_card
 from .discover import discover_inputs
 from .grouping import group_pages, order_instances
 from .ground_truth import build_ground_truth
@@ -31,8 +31,8 @@ from .results import (
     write_evaluation_md,
     write_summary_md,
 )
-from .signals import available_policies, evaluate_signals, load_policy
-from .unified import (
+from .rules.signals import available_policies, evaluate_signals, load_policy
+from .rules.unified import (
     OTHER_TYPE,
     apply_llm_answer,
     classify_page_unified,

@@ -47,7 +47,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
-from docsplit.normalize import PageText, match_phrase, normalize  # noqa: E402
+from docsplit.rules.normalize import PageText, match_phrase, normalize  # noqa: E402
 
 REF = REPO / "data/reference/income"
 NASFAA = REF / "irs/transcripts/nasfaa_tax_transcript_decoder.pdf"

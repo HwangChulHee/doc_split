@@ -13,11 +13,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from docsplit.cards import SignalCard, apply_vlm_extract  # noqa: E402
-from docsplit.classify import classify_page  # noqa: E402
+from docsplit.rules.cards import SignalCard, apply_vlm_extract  # noqa: E402
+from docsplit.rules.classify import classify_page  # noqa: E402
 from docsplit.grouping import order_instances  # noqa: E402
-from docsplit.normalize import PageText  # noqa: E402
-from docsplit.signals import detect_subtype, evaluate_signals, load_policy  # noqa: E402
+from docsplit.rules.normalize import PageText  # noqa: E402
+from docsplit.rules.signals import detect_subtype, evaluate_signals, load_policy  # noqa: E402
 
 POLICY = {
     "type": "TEST_TYPE",

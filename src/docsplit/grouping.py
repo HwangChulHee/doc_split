@@ -16,7 +16,7 @@ import json
 import re
 from collections import Counter
 
-from .cards import SignalCard
+from .rules.cards import SignalCard
 from .llm import LLMClient
 
 
