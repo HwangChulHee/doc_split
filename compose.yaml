@@ -2,7 +2,10 @@ services:
   docsplit:
     build: .
     image: docsplit:latest
-    env_file: .env
+    env_file:
+      # 없어도 실행은 된다 — 키 없이 돌리면 규칙 판정까지만 하고 멈춘다.
+      - path: .env
+        required: false
     # 호스트 사용자 소유로 산출물을 남긴다 (root 소유 파일이 생기지 않도록).
     user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     volumes:

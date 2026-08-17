@@ -16,35 +16,49 @@ git clone https://github.com/HwangChulHee/doc_split.git && cd doc_split
 기준: `1003`/`URLA`, `Credit`, `Title`, `INCOME`/`P&L` 등). 저장소에 함께 들어
 있는 `data/reference/` 는 준거 문서 보관처라 분류 대상에서 제외됩니다.
 
+API 키를 넣어주세요.
+
 ```bash
 cp .env.example .env      # OPENAI_API_KEY 입력
-uv run docsplit run
 ```
+
+### 실행 — Docker (권장)
+
+Docker만 있으면 됩니다. Python이나 uv를 설치하지 않아도 되고, 버전 차이로
+막힐 일도 없습니다.
+
+```bash
+docker compose run --rm docsplit
+```
+
+`results/` 와 `outputs/` 는 호스트 디렉토리에 그대로 생성되고, 컨테이너는
+호스트 사용자 권한으로 실행되므로 만들어진 파일을 바로 열어볼 수 있습니다.
+이미지에는 코드·정책·프롬프트만 들어갑니다 — 문서 PDF는 굽지 않고 실행 시점에
+읽기 전용으로 붙입니다.
+
+API 키 없이 규칙 판정까지만 돌려볼 수도 있습니다:
+
+```bash
+docker compose run --rm docsplit docsplit run --no-llm
+```
+
+### 실행 — uv (로컬에 Python 3.12 · uv 가 있는 경우)
+
+```bash
+uv run docsplit run
+uv run docsplit run --no-llm      # API 키 없이 규칙 판정까지만
+```
+
+### 산출물
 
 | 산출 경로 | 내용 |
 |---|---|
 | `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, (정답이 있는 경우) 검증 리포트 |
 | `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보가 포함되므로 커밋하지 않습니다 |
 
-API 키 없이 규칙 판정까지만 실행할 수도 있습니다:
-
-```bash
-uv run docsplit run --no-llm
-```
-
 전체 실행 시 LLM 호출은 패키지 2개 기준 18회, 비용은 7센트 수준입니다
-(gpt-5.4-mini). 호출 결과는 캐싱되므로 재실행 시에는 API 호출이 발생하지 않습니다.
-
-### Docker로 실행하기
-
-uv 없이 Docker만으로도 실행할 수 있습니다:
-
-```bash
-docker compose run --rm docsplit
-```
-
-`data/` 배치와 `.env` 준비는 위와 동일합니다. 결과는 호스트의
-`results/` 에 그대로 생성됩니다.
+(gpt-5.4-mini). 호출 결과는 `outputs/llm_cache/` 에 캐싱되므로 재실행 시에는
+API 호출이 발생하지 않습니다 — 두 실행 방식이 같은 캐시를 공유합니다.
 
 ## 접근 방식
 
