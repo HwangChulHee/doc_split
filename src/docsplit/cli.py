@@ -18,12 +18,12 @@ from pathlib import Path
 import pymupdf
 
 from .rules.cards import apply_vlm_extract, build_card
-from .discover import discover_inputs
+from .ingest.discover import discover_inputs
 from .grouping import group_pages, order_instances
 from .ground_truth import build_ground_truth
 from .llm import DEFAULT_MODEL, LLMClient, LLMDisabled
-from .parse import export_inspection, export_jsonl
-from .pdf_parser import parse_pdf, render_page_png
+from .ingest.parse import export_inspection, export_jsonl
+from .ingest.pdf_parser import parse_pdf, render_page_png
 from .results import (
     score_against_gt,
     write_classification_csv,
