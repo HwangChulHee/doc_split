@@ -19,6 +19,7 @@ import json
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pymupdf
@@ -76,14 +77,51 @@ def build_arg_parser(description: str) -> argparse.ArgumentParser:
     return ap
 
 
+@dataclass
+class _Run:
+    """One invocation's settings, resolved from the policy and the arguments."""
+
+    policy: dict
+    type_name: str
+    competing: list[dict]
+    all_types: list[str]
+    packages: dict[str, tuple[Path, Path]]
+    scope: list[str]
+    gt_label: str
+    parsed_dir: Path
+    out_dir: Path
+    llm: LLMClient | None
+
+
+@dataclass
+class _Classified:
+    """Stage [1] output. Verdicts are dicts so later stages can annotate them."""
+
+    rows: list[dict] = field(default_factory=list)
+    pages_by_pkg: dict[str, dict[int, str]] = field(default_factory=dict)
+    signal_results: dict[tuple[str, int], object] = field(default_factory=dict)
+    page_texts: dict[tuple[str, int], PageText] = field(default_factory=dict)
+    universal_only: dict[str, dict[int, str]] = field(default_factory=dict)
+
+
 def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Namespace) -> None:
+    r = _setup(policy_name, out_subdir, args)
+
+    classified = _classify_by_rules(r)
+    _resolve_deferred_by_llm(r, classified)
+    vlm_extracts = _resolve_image_pages_by_vlm(r, classified)
+    _write_classifications(r, classified)
+
+    cards_by_pkg = _build_cards(r, classified, vlm_extracts)
+    groupings, orderings = _group_and_order(r, classified, cards_by_pkg)
+
+    _verify_and_report(r, args, check_prefix, classified, cards_by_pkg, groupings, orderings)
+
+
+def _setup(policy_name: str, out_subdir: str, args: argparse.Namespace) -> _Run:
     policy = load_policy(policy_name)
     type_name = policy["type"]
     competing = [load_policy(n) for n in available_policies() if n != policy_name]
-    # The VLM sees an image with no prior rule evidence, so it is offered every
-    # type — including ones no policy exists for yet (title_report.md §7).
-    all_types = sorted({type_name, *(p["type"] for p in competing),
-                        "INCOME_DOC", "OTHER"})
 
     parsed_dir = args.out_dir / "parsed"
     out_dir = args.out_dir / out_subdir
@@ -98,7 +136,6 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         raise SystemExit(
             f"패키지 '{args.package}' 없음 — 사용 가능: {', '.join(sorted(packages))} 또는 both"
         )
-    gt_label = sorted(packages)[0]  # the answer key exists for the first package
 
     llm = None
     if not args.no_llm:
@@ -108,30 +145,46 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         except LLMDisabled as e:
             sys.exit(str(e))
 
-    # ── [1] classification (all packages, rule-only) ──────────
-    classifications: list[dict] = []
-    pages_by_pkg: dict[str, dict[int, str]] = {}
-    signal_results: dict[tuple[str, int], object] = {}
-    page_texts: dict[tuple[str, int], object] = {}
-    universal_only: dict[str, dict[int, str]] = {}
-    for pkg, (_, jsonl_path) in sorted(packages.items()):
+    return _Run(
+        policy=policy,
+        type_name=type_name,
+        competing=competing,
+        # The VLM sees an image with no prior rule evidence, so it is offered
+        # every type — including ones no policy exists for yet (§7 of title_report).
+        all_types=sorted({type_name, *(p["type"] for p in competing),
+                          "INCOME_DOC", "OTHER"}),
+        packages=packages,
+        scope=scope,
+        gt_label=sorted(packages)[0],  # the answer key exists for the first package
+        parsed_dir=parsed_dir,
+        out_dir=out_dir,
+        llm=llm,
+    )
+
+
+# ── [1] classification (all packages, rule-only) ──────────────
+def _classify_by_rules(r: _Run) -> _Classified:
+    out = _Classified()
+    for pkg, (_, jsonl_path) in sorted(r.packages.items()):
         recs = load_parsed(jsonl_path)
-        pages_by_pkg[pkg] = {r["page_index"]: r["raw_text"] for r in recs}
-        universal_only[pkg] = {}
+        out.pages_by_pkg[pkg] = {rec["page_index"]: rec["raw_text"] for rec in recs}
+        out.universal_only[pkg] = {}
         for rec in recs:
             cls, sig, ptext = classify_page(
-                pkg, rec["page_index"], rec["raw_text"], policy, competing
+                pkg, rec["page_index"], rec["raw_text"], r.policy, r.competing
             )
-            signal_results[(pkg, rec["page_index"])] = sig
-            page_texts[(pkg, rec["page_index"])] = ptext
-            classifications.append(cls.to_dict())
+            out.signal_results[(pkg, rec["page_index"])] = sig
+            out.page_texts[(pkg, rec["page_index"])] = ptext
+            out.rows.append(cls.to_dict())
             # vendor-independent coverage probe (C-V5), rule-only and free
             if ptext.fulltext:
-                uni_res = evaluate_universal_only(ptext, policy)
-                universal_only[pkg][rec["page_index"]] = grade_for(uni_res, policy)[0]
+                uni_res = evaluate_universal_only(ptext, r.policy)
+                out.universal_only[pkg][rec["page_index"]] = grade_for(uni_res, r.policy)[0]
+    return out
 
-    # deferred pages resolved by the LLM (in-scope packages only)
-    subtype_options = sorted(
+
+def _subtype_options(policy: dict) -> list[str]:
+    return sorted(
         {
             name
             for vblock in (policy.get("vendors") or {}).values()
@@ -139,146 +192,186 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         }
         | set((policy.get("subtypes", {}).get("suffix_map") or {}).values())
     )
-    llm_cfg = policy.get("llm", {})
+
+
+def _llm_candidates(r: _Run, c: dict, llm_cfg: dict) -> list[str]:
+    """Which types this page is offered. Never an arbitrary single choice."""
+    if c["grade"] == "NO_SIGNAL":
+        # Nothing claimed this page, so narrowing the choice to one type would
+        # be arbitrary. OTHER is reachable only here — it has no policy file by
+        # design (income_doc handoff §4).
+        return r.all_types
+    candidates = c["flags"].get("type_conflict") or [r.type_name]
+    if llm_cfg.get("offer_rival_types"):
+        # Let the model choose against the types that also claim the page,
+        # instead of only confirming or rejecting this one.
+        candidates = sorted(set(candidates) | set(c["flags"].get("rival_grades", {})))
+    return candidates
+
+
+def _apply_text_answer(c: dict, parsed: dict, type_name: str) -> None:
+    c["llm"] = parsed
+    if parsed.get("type") == type_name:
+        c["type"], c["grade"] = type_name, "LLM"
+        c["subtype"] = c["subtype"] or parsed.get("subtype")
+    elif parsed.get("type") in (None, "UNRESOLVED"):
+        c["grade"] = "LLM_UNRESOLVED"
+    else:
+        # Includes OTHER, which is a verdict rather than a fallback: no policy
+        # file exists for it by design (income_doc handoff §4).
+        c["type"], c["grade"] = parsed.get("type"), "LLM"
+
+
+def _resolve_deferred_by_llm(r: _Run, classified: _Classified) -> None:
+    """Deferred pages of in-scope packages, resolved in place."""
+    llm_cfg = r.policy.get("llm", {})
     # Some subgroups carry no rule signal by nature rather than by omission
     # (income_doc.md §1: a P&L scores zero on a 32-probe vocabulary). A policy
     # can opt into sending those pages to the LLM too.
     llm_grades = {"DEFER_LLM"}
     if llm_cfg.get("classify_on_no_signal"):
         llm_grades.add("NO_SIGNAL")
+    subtype_options = _subtype_options(r.policy)
 
-    for c in classifications:
-        if c["grade"] not in llm_grades or c["package"] not in scope or llm is None:
+    for c in classified.rows:
+        if c["grade"] not in llm_grades or c["package"] not in r.scope or r.llm is None:
             continue
-        candidates = c["flags"].get("type_conflict") or [type_name]
-        if llm_cfg.get("offer_rival_types"):
-            # Let the model choose against the types that also claim the page,
-            # instead of only confirming or rejecting this one.
-            candidates = sorted(set(candidates) | set(c["flags"].get("rival_grades", {})))
-        if c["grade"] == "NO_SIGNAL":
-            # Nothing claimed this page, so narrowing the choice to one type
-            # would be arbitrary. OTHER is reachable only here — it has no
-            # policy file by design (income_doc handoff §4).
-            candidates = all_types
-        parsed = llm.complete_json(
+        parsed = r.llm.complete_json(
             stage="classify_page",
             prompt_name="classify_page",
             variables={
-                "candidate_types": ", ".join(candidates),
+                "candidate_types": ", ".join(_llm_candidates(r, c, llm_cfg)),
                 "reason": "TYPE_CONFLICT" if c["flags"].get("type_conflict") else c["grade"],
                 "signal_summary": json.dumps(c["signals"], ensure_ascii=False),
                 "subtype_options": ", ".join(subtype_options) or "(없음)",
-                "page_text": pages_by_pkg[c["package"]][c["page"]],
+                "page_text": classified.pages_by_pkg[c["package"]][c["page"]],
             },
         )
-        c["llm"] = parsed
-        if parsed.get("type") == type_name:
-            c["type"], c["grade"] = type_name, "LLM"
-            c["subtype"] = c["subtype"] or parsed.get("subtype")
-        elif parsed.get("type") in (None, "UNRESOLVED"):
-            c["grade"] = "LLM_UNRESOLVED"
-        else:
-            # Includes OTHER, which is a verdict rather than a fallback: no
-            # policy file exists for it by design (income_doc handoff §4).
-            c["type"], c["grade"] = parsed.get("type"), "LLM"
+        _apply_text_answer(c, parsed, r.type_name)
 
-    # ── [1b] VLM: pages with no text layer at all ─────────────
-    # Rendering carries the page rotation, so no separate correction is needed.
-    vlm_extracts: dict[tuple[str, int], dict] = {}
-    for c in classifications:
-        if c["grade"] != "DEFER_VLM" or c["package"] not in scope or llm is None:
+
+# ── [1b] VLM: pages with no text layer at all ─────────────────
+def _resolve_image_pages_by_vlm(r: _Run, classified: _Classified
+                                ) -> dict[tuple[str, int], dict]:
+    """Returns what the model read off each image page, for the card stage.
+
+    render_page_png ignores the stored /Rotate: on these scans it disagrees
+    with the content (known_limits.md §5).
+    """
+    extracts: dict[tuple[str, int], dict] = {}
+    for c in classified.rows:
+        if c["grade"] != "DEFER_VLM" or c["package"] not in r.scope or r.llm is None:
             continue
-        with pymupdf.open(packages[c["package"]][0]) as pdf:
+        with pymupdf.open(r.packages[c["package"]][0]) as pdf:
             png = render_page_png(pdf[c["page"]], VLM_DPI)
-        parsed = llm.complete_json_vision(
+        parsed = r.llm.complete_json_vision(
             stage="classify_page_vision",
             prompt_name="classify_page_vision",
             variables={
-                "candidate_types": "\n".join(f"- {t}" for t in all_types),
+                "candidate_types": "\n".join(f"- {t}" for t in r.all_types),
                 "package": c["package"],
                 "page": str(c["page"]),
             },
             image_png=png,
         )
         c["llm"] = parsed
-        if parsed.get("type") == type_name:
-            c["type"], c["grade"] = type_name, "VLM"
+        if parsed.get("type") == r.type_name:
+            c["type"], c["grade"] = r.type_name, "VLM"
             c["subtype"] = parsed.get("subtype")
-            vlm_extracts[(c["package"], c["page"])] = parsed.get("extracted") or {}
+            extracts[(c["package"], c["page"])] = parsed.get("extracted") or {}
         elif parsed.get("type") in (None, "UNRESOLVED"):
             c["grade"] = "VLM_UNRESOLVED"
         else:
             c["type"], c["grade"] = None, "VLM"
+    return extracts
 
-    with (out_dir / "classification.jsonl").open("w", encoding="utf-8") as f:
-        for c in classifications:
+
+def _write_classifications(r: _Run, classified: _Classified) -> None:
+    with (r.out_dir / "classification.jsonl").open("w", encoding="utf-8") as f:
+        for c in classified.rows:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
-    n_typed = sum(1 for c in classifications if c["type"] == type_name)
-    print(f"[1] 판정 완료: {len(classifications)}p 중 {type_name} {n_typed}p")
+    n_typed = sum(1 for c in classified.rows if c["type"] == r.type_name)
+    print(f"[1] 판정 완료: {len(classified.rows)}p 중 {r.type_name} {n_typed}p")
 
-    # ── [2] signal cards (in-scope pages of this type) ────────
+
+# ── [2] signal cards (in-scope pages of this type) ────────────
+def _build_cards(r: _Run, classified: _Classified,
+                 vlm_extracts: dict[tuple[str, int], dict]) -> dict[str, list]:
     cards_by_pkg: dict[str, list] = {}
-    with (out_dir / "cards.jsonl").open("w", encoding="utf-8") as f:
-        for pkg in scope:
-            pdf = pymupdf.open(packages[pkg][0])
+    with (r.out_dir / "cards.jsonl").open("w", encoding="utf-8") as f:
+        for pkg in r.scope:
             cards = []
-            for c in classifications:
-                if c["package"] != pkg or c["type"] != type_name:
-                    continue
-                card = build_card(
-                    pkg, c["page"], page_texts[(pkg, c["page"])],
-                    signal_results[(pkg, c["page"])], c["subtype"], policy, pdf[c["page"]],
-                )
-                extracted = vlm_extracts.get((pkg, c["page"]))
-                if extracted:  # image page: the card is empty without this
-                    apply_vlm_extract(card, extracted)
-                cards.append(card)
-                f.write(json.dumps(card.to_dict(), ensure_ascii=False) + "\n")
-            pdf.close()
+            with pymupdf.open(r.packages[pkg][0]) as pdf:
+                for c in classified.rows:
+                    if c["package"] != pkg or c["type"] != r.type_name:
+                        continue
+                    card = build_card(
+                        pkg, c["page"], classified.page_texts[(pkg, c["page"])],
+                        classified.signal_results[(pkg, c["page"])], c["subtype"],
+                        r.policy, pdf[c["page"]],
+                    )
+                    extracted = vlm_extracts.get((pkg, c["page"]))
+                    if extracted:  # image page: the card is empty without this
+                        apply_vlm_extract(card, extracted)
+                    cards.append(card)
+                    f.write(json.dumps(card.to_dict(), ensure_ascii=False) + "\n")
             cards_by_pkg[pkg] = cards
             print(f"[2] 신호 카드: pkg{pkg} {len(cards)}장")
+    return cards_by_pkg
 
-    # ── [3][4] grouping + ordering ────────────────────────────
-    groupings, orderings = {}, {}
-    if llm is None:
+
+# ── [3][4] grouping + ordering ───────────────────────────────
+def _group_and_order(r: _Run, classified: _Classified,
+                     cards_by_pkg: dict[str, list]) -> tuple[dict, dict]:
+    groupings: dict[str, dict] = {}
+    orderings: dict[str, dict] = {}
+    if r.llm is None:
         skipped = json.dumps({"status": "SKIPPED", "reason": "--no-llm"}, ensure_ascii=False)
-        (out_dir / "grouping.json").write_text(skipped, encoding="utf-8")
-        (out_dir / "ordering.json").write_text(skipped, encoding="utf-8")
+        (r.out_dir / "grouping.json").write_text(skipped, encoding="utf-8")
+        (r.out_dir / "ordering.json").write_text(skipped, encoding="utf-8")
         print("[3][4] SKIPPED (--no-llm)")
-    else:
-        for pkg in scope:
-            if not cards_by_pkg[pkg]:
-                print(f"[3][4] pkg{pkg}: 대상 페이지 없음 — 건너뜀")
-                continue
-            g = group_pages(pkg, cards_by_pkg[pkg], pages_by_pkg[pkg], policy, llm)
-            groupings[pkg] = g
-            orderings[pkg] = order_instances(g, cards_by_pkg[pkg], policy)
-            print(f"[3][4] pkg{pkg}: instance {len(g.get('instances', []))}개, "
-                  f"unresolved {len(g.get('unresolved_pages', []))}p")
-        (out_dir / "grouping.json").write_text(
-            json.dumps(groupings, ensure_ascii=False, indent=2), encoding="utf-8")
-        (out_dir / "ordering.json").write_text(
-            json.dumps(orderings, ensure_ascii=False, indent=2), encoding="utf-8")
+        return groupings, orderings
 
-    # ── GT + checks ───────────────────────────────────────────
+    for pkg in r.scope:
+        if not cards_by_pkg[pkg]:
+            print(f"[3][4] pkg{pkg}: 대상 페이지 없음 — 건너뜀")
+            continue
+        g = group_pages(pkg, cards_by_pkg[pkg], classified.pages_by_pkg[pkg], r.policy, r.llm)
+        groupings[pkg] = g
+        orderings[pkg] = order_instances(g, cards_by_pkg[pkg], r.policy)
+        print(f"[3][4] pkg{pkg}: instance {len(g.get('instances', []))}개, "
+              f"unresolved {len(g.get('unresolved_pages', []))}p")
+    (r.out_dir / "grouping.json").write_text(
+        json.dumps(groupings, ensure_ascii=False, indent=2), encoding="utf-8")
+    (r.out_dir / "ordering.json").write_text(
+        json.dumps(orderings, ensure_ascii=False, indent=2), encoding="utf-8")
+    return groupings, orderings
+
+
+# ── GT + checks ──────────────────────────────────────────────
+def _verify_and_report(r: _Run, args: argparse.Namespace, check_prefix: str,
+                       classified: _Classified, cards_by_pkg: dict[str, list],
+                       groupings: dict, orderings: dict) -> None:
+    rows = classified.rows
     # Answer-key files are recognized the same way the unified CLI recognizes
     # them, so the two paths never disagree about what the originals are.
     answer_keys = {f.path.name: f.doc_type for f in discover_inputs(args.data_dir).answer_keys}
     gt_rows, gt_coverage = build_ground_truth(
-        answer_keys, parsed_dir, packages[gt_label][1],
-        args.out_dir / "ground_truth" / f"pkg{gt_label}.jsonl",
+        answer_keys, r.parsed_dir, r.packages[r.gt_label][1],
+        args.out_dir / "ground_truth" / f"pkg{r.gt_label}.jsonl",
     )
     if gt_coverage < 1.0:
-        print(f"⚠️  패키지 {gt_label} 의 정답 매칭률이 {gt_coverage:.0%} 입니다 — 검증이 부분적입니다.")
-    expected, warnings = load_expected_pages(type_name, sorted(packages))
+        print(f"⚠️  패키지 {r.gt_label} 의 정답 매칭률이 {gt_coverage:.0%} 입니다 — 검증이 부분적입니다.")
+    expected, warnings = load_expected_pages(r.type_name, sorted(r.packages))
     for w in warnings:
         print(f"⚠️  {w}")
 
-    verify_cfg = policy.get("verification", {})
+    verify_cfg = r.policy.get("verification", {})
     results = run_verifications(
-        type_name, classifications, groupings, orderings,
-        gt_rows, gt_label=gt_label, expected_pages=expected, prefix=check_prefix,
-        universal_only=universal_only.get(gt_label) if policy.get("vendors") else None,
+        r.type_name, rows, groupings, orderings,
+        gt_rows, gt_label=r.gt_label, expected_pages=expected, prefix=check_prefix,
+        universal_only=(classified.universal_only.get(r.gt_label)
+                        if r.policy.get("vendors") else None),
         gt_exclude_source_pages=verify_cfg.get("gt_exclude_source_pages"),
         instance_expectations=verify_cfg.get("instance_expectations"),
         require_final_type=verify_cfg.get("require_final_type", False),
@@ -288,43 +381,48 @@ def run(policy_name: str, out_subdir: str, check_prefix: str, args: argparse.Nam
         },
     )
 
-    excluded_src = set(verify_cfg.get("gt_exclude_source_pages") or [])
-    excluded_input = {
-        r["input_page"] for r in gt_rows
-        if r["document_type"] == type_name and r["source_page"] in excluded_src
-    }
-    excluded_pages = [
-        c for c in classifications
-        if c["package"] == gt_label and c["page"] in excluded_input
-    ]
-    vlm_pages = [c for c in classifications if c["grade"].startswith("VLM")
-                 or (c.get("llm") and c["grade"] == "DEFER_VLM")]
-
-    subtype_counts = dict(
-        Counter(
-            f"{c['package']}:{c['subtype']}"
-            for c in classifications
-            if c["type"] == type_name
-        )
-    )
-    conflicts = [
-        {"package": c["package"], "page": c["page"], "types": c["flags"]["type_conflict"]}
-        for c in classifications
-        if c["flags"].get("type_conflict")
-    ]
     report = render_report(
-        type_name, results, groupings.get(gt_label), orderings.get(gt_label),
-        llm.this_run if llm else None, args.no_llm,
-        layers=layer_contribution(classifications, type_name),
-        subtype_counts=subtype_counts,
-        conflicts=conflicts,
+        r.type_name, results, groupings.get(r.gt_label), orderings.get(r.gt_label),
+        r.llm.this_run if r.llm else None, args.no_llm,
+        layers=layer_contribution(rows, r.type_name),
+        subtype_counts=dict(Counter(f"{c['package']}:{c['subtype']}" for c in rows
+                                    if c["type"] == r.type_name)),
+        conflicts=[
+            {"package": c["package"], "page": c["page"], "types": c["flags"]["type_conflict"]}
+            for c in rows if c["flags"].get("type_conflict")
+        ],
         warnings=warnings,
-        excluded_pages=excluded_pages if excluded_src else None,
-        vlm_pages=vlm_pages if any(c["grade"] == "DEFER_VLM" or
-                                   c["grade"].startswith("VLM") for c in classifications) else None,
+        excluded_pages=_excluded_pages(rows, gt_rows, r, verify_cfg),
+        vlm_pages=_vlm_pages(rows),
     )
-    (out_dir / "report.md").write_text(report, encoding="utf-8")
-    for r in results:
-        verdict = "MEASURE" if r.measurement is not None else ("PASS" if r.passed else "FAIL")
-        print(f"{r.name}: {verdict} — {r.detail}")
-    print(f"report: {out_dir / 'report.md'}")
+    (r.out_dir / "report.md").write_text(report, encoding="utf-8")
+    for res in results:
+        verdict = "MEASURE" if res.measurement is not None else ("PASS" if res.passed else "FAIL")
+        print(f"{res.name}: {verdict} — {res.detail}")
+    print(f"report: {r.out_dir / 'report.md'}")
+
+
+def _excluded_pages(rows: list[dict], gt_rows: list[dict], r: _Run,
+                    verify_cfg: dict) -> list[dict] | None:
+    """Pages the policy excludes from the checks, reported separately.
+
+    None means the policy excludes nothing, which the report renders
+    differently from "excludes something, and here it is".
+    """
+    excluded_src = set(verify_cfg.get("gt_exclude_source_pages") or [])
+    if not excluded_src:
+        return None
+    excluded_input = {
+        row["input_page"] for row in gt_rows
+        if row["document_type"] == r.type_name and row["source_page"] in excluded_src
+    }
+    return [c for c in rows
+            if c["package"] == r.gt_label and c["page"] in excluded_input]
+
+
+def _vlm_pages(rows: list[dict]) -> list[dict] | None:
+    """Image pages and their outcome. None when this run had none at all."""
+    if not any(c["grade"] == "DEFER_VLM" or c["grade"].startswith("VLM") for c in rows):
+        return None
+    return [c for c in rows if c["grade"].startswith("VLM")
+            or (c.get("llm") and c["grade"] == "DEFER_VLM")]
