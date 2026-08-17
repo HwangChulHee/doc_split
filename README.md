@@ -16,7 +16,7 @@ git clone https://github.com/HwangChulHee/doc_split.git && cd doc_split
 기준: `1003`/`URLA`, `Credit`, `Title`, `INCOME`/`P&L` 등). 저장소에 함께 들어
 있는 `data/reference/` 는 준거 문서 보관처라 분류 대상에서 제외됩니다.
 
-API 키를 넣어주세요.
+OpenAI API 키를 넣어주세요. 키가 없어도 규칙 판정까지는 돌아갑니다(아래 참고).
 
 ```bash
 cp .env.example .env      # OPENAI_API_KEY 입력
@@ -25,7 +25,7 @@ cp .env.example .env      # OPENAI_API_KEY 입력
 ### 실행 — Docker (권장)
 
 Docker만 있으면 됩니다. Python이나 uv를 설치하지 않아도 되고, 버전 차이로
-막힐 일도 없습니다.
+막힐 일도 없습니다. 첫 실행에서는 이미지 빌드가 먼저 일어납니다.
 
 ```bash
 docker compose run --rm docsplit
@@ -47,9 +47,10 @@ docker compose run --rm docsplit docsplit run --no-llm
 ```bash
 uv run docsplit run
 uv run docsplit run --no-llm      # API 키 없이 규칙 판정까지만
+uv run pytest                     # 판정·정렬 로직 테스트 (36건)
 ```
 
-### 산출물
+### 산출물과 비용
 
 | 산출 경로 | 내용 |
 |---|---|
@@ -129,7 +130,7 @@ data/*.pdf
 [3] 규칙 분류            4개 정책(policies/*.yaml)을 페이지마다 동시 평가
    │                     RULE_HIGH > RULE_MEDIUM 우선순위로 확정
    ├─ 미확정 ──► [4] LLM 분류    5유형 후보 + 규칙 평가 결과 동봉, 페이지당 1회
-   ├─ 텍스트 없음 ► [5] VLM       dpi 150 렌더링 → 비전 분류
+   ├─ 텍스트 없음 ► [5] VLM       dpi 150 정방향 렌더링 → 비전 분류
    ▼
 [6] 그룹핑 (LLM)         코드가 신호 카드(이름·ID·마커·코드)를 모으고
    │                     LLM이 유형별 문서 instance로 묶기 — evidence 필수,
@@ -259,9 +260,17 @@ src/docsplit/
 ├── results.py       # results/ 산출 · 정답 대조 채점
 ├── ground_truth.py  # 정답 빌더 (원본 PDF를 보는 유일한 모듈)
 ├── evaluate.py      # 유형별 검증 리포트 (V 시리즈)
-└── *_pipeline.py    # 개발 중 유형별로 돌리던 검증 경로 (제출 실행 경로는 cli.py)
+└── pipeline.py      # 개발 중 유형별로 돌리던 검증 경로
+                     # (urla_/credit_/title_/income_pipeline.py 가 얇은 진입점)
 
 docs/                # 도메인 지식 · 유형별 설계 기준서 · 준거 대조 분석
 data/reference/      # 확보한 준거 문서 (커밋 가부는 출처별로 다름 — SOURCES.md 참조)
+scripts/             # 준거 문서와 데이터를 기계 대조한 관찰 스크립트 (분석 보고서의 근거)
+config/              # 개발용 검증의 기대값 — 아래 주 참조
 tests/               # 판정·정렬 로직 합성 케이스
 ```
+
+`config/expected_pages.yaml` 은 **제출 실행 경로가 읽지 않습니다.** 정답이 없는
+두 번째 패키지에 대해 개발 중 검증(V 시리즈)이 쓰던 관찰 기대값이고,
+`docsplit run` 은 이 파일이 없어도 그대로 완주합니다(치우고 실행해 확인했습니다).
+분류 판정에 정답이나 기대값이 섞여 들어가지 않는다는 뜻입니다.
