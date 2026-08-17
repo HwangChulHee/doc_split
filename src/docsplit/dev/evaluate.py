@@ -113,6 +113,30 @@ def _duplicate_marker_failures(label: str, grouping: dict, markers: dict) -> lis
     return out
 
 
+@dataclass
+class _Checked:
+    """What every check needs to know, derived once.
+
+    ``v1_gt_pages`` is the answer key's pages for this type minus the ones the
+    design excludes by name, and it is the population V1, V4 and V5 all judge —
+    keeping them comparable is the reason this is computed in one place.
+    """
+
+    type_name: str
+    classifications: list[dict]
+    gt_label: str
+    expected_pages: dict
+    prefix: str
+    gt_pages: list[int]
+    gt_by_page: dict[int, dict]
+    primary: dict[int, dict]
+    excluded: set[int]
+    v1_gt_pages: list[int]
+
+    def name(self, n: int) -> str:
+        return f"{self.prefix}V{n}"
+
+
 def run_verifications(
     type_name: str,
     classifications: list[dict],
@@ -129,11 +153,6 @@ def run_verifications(
     require_final_type: bool = False,
 ) -> list[CheckResult]:
     gt_pages = sorted(r["input_page"] for r in gt_rows if r["document_type"] == type_name)
-    gt_by_page = {r["input_page"]: r for r in gt_rows}
-    primary = _by_page(classifications, gt_label)
-    grouping = groupings.get(gt_label)
-    ordering = orderings.get(gt_label)
-
     # Pages the design excludes from V1 by name (title_report.md §5-1: the page
     # whose content was removed has no text evidence at all). They stay out of
     # the counter-example set too — they are of this type, just unprovable.
@@ -143,246 +162,309 @@ def run_verifications(
         if r["document_type"] == type_name
         and r["source_page"] in set(gt_exclude_source_pages or [])
     }
-    v1_gt_pages = [p for p in gt_pages if p not in excluded]
+    ctx = _Checked(
+        type_name=type_name,
+        classifications=classifications,
+        gt_label=gt_label,
+        expected_pages=expected_pages,
+        prefix=prefix,
+        gt_pages=gt_pages,
+        gt_by_page={r["input_page"]: r for r in gt_rows},
+        primary=_by_page(classifications, gt_label),
+        excluded=excluded,
+        v1_gt_pages=[p for p in gt_pages if p not in excluded],
+    )
 
-    def name(n: int) -> str:
-        return f"{prefix}V{n}"
-
-    results: list[CheckResult] = []
-
-    # ── V1: expected pages take their intended path ──────────
-    path_specs = {lb: e["expected_paths"] for lb, e in expected_pages.items() if e["expected_paths"]}
-    if path_specs:
-        v1_fail, total = [], 0
-        for label, spec in sorted(path_specs.items()):
-            pages = _by_page(classifications, label)
-            for want, page_list in sorted(spec.items()):
-                for page in page_list:
-                    total += 1
-                    c = pages.get(page)
-                    got = c["rule_grade"] if c else "MISSING"
-                    if got != want.upper():
-                        v1_fail.append({
-                            "package": label, "page": page,
-                            "expected_path": want.upper(), "got": got,
-                            "signals": c and c.get("signals"),
-                            "flags": c and c.get("flags"),
-                        })
-        results.append(
-            CheckResult(
-                name(1), not v1_fail,
-                f"{type_name} 기대 {total}p 중 {total - len(v1_fail)}p 가 의도한 경로로 감 "
-                "(유형마다 도달 등급이 다른 명세 — 전부 RULE_HIGH가 기준이 아님)",
-                v1_fail,
-            )
-        )
-    else:
-        targets = [(gt_label, p, primary.get(p)) for p in v1_gt_pages]
-        for label, entry in expected_pages.items():
-            pages = _by_page(classifications, label)
-            targets += [(label, p, pages.get(p)) for p in entry["expected"]]
-        v1_fail = []
-        for label, page, c in targets:
-            grade = c["grade"] if c else "MISSING"
-            if grade not in ("RULE_HIGH", "RULE_MEDIUM"):
-                v1_fail.append(
-                    {"package": label, "page": page, "grade": grade,
-                     "signals": c and c.get("signals"), "matches": c and c.get("matches")}
-                )
-        per_pkg = {}
-        for label, page, c in targets:
-            tot, ok = per_pkg.get(label, (0, 0))
-            reached = bool(c) and c["grade"] in ("RULE_HIGH", "RULE_MEDIUM")
-            per_pkg[label] = (tot + 1, ok + (1 if reached else 0))
-        breakdown = ", ".join(f"pkg{lb} {ok}/{tot}" for lb, (tot, ok) in sorted(per_pkg.items()))
-        results.append(
-            CheckResult(
-                name(1), not v1_fail,
-                f"{type_name} 기대 {len(targets)}p 중 {len(targets) - len(v1_fail)}p "
-                f"RULE_HIGH/MEDIUM 도달 ({breakdown})",
-                v1_fail,
-            )
-        )
-
-    # ── counter-examples: pages of another type ──────────────
-    others: list[tuple[str, int, dict]] = [
-        (gt_label, p, c) for p, c in primary.items() if p not in set(gt_pages)
+    others = _counter_example_pages(ctx)
+    results = [
+        _check_v1(ctx),
+        _check_v2(ctx, others),
+        _check_v3(ctx, others),
+        _check_v4(ctx, groupings, orderings, instance_expectations, markers_by_page),
     ]
-    for label, entry in expected_pages.items():
-        if label == gt_label:
+    if universal_only is not None:
+        results.append(_check_v5_coverage(ctx, universal_only))
+    if require_final_type:
+        results.append(_check_v6_final_type(ctx))
+    vlm = _check_v6_vlm(ctx)
+    if vlm is not None:
+        results.append(vlm)
+    return results
+
+
+# ── V1: expected pages take their intended path ──────────────
+def _check_v1(ctx: _Checked) -> CheckResult:
+    """Two forms: a per-grade path spec, or "reached a rule grade at all".
+
+    A type whose subgroups are meant to land on *different* grades declares
+    expected_paths, and then "everything RULE_HIGH" would be the wrong question
+    to ask (income_doc.md §5).
+    """
+    path_specs = {lb: e["expected_paths"]
+                  for lb, e in ctx.expected_pages.items() if e["expected_paths"]}
+    if path_specs:
+        return _check_v1_by_path(ctx, path_specs)
+    return _check_v1_by_grade(ctx)
+
+
+def _check_v1_by_path(ctx: _Checked, path_specs: dict) -> CheckResult:
+    failures, total = [], 0
+    for label, spec in sorted(path_specs.items()):
+        pages = _by_page(ctx.classifications, label)
+        for want, page_list in sorted(spec.items()):
+            for page in page_list:
+                total += 1
+                c = pages.get(page)
+                got = c["rule_grade"] if c else "MISSING"
+                if got != want.upper():
+                    failures.append({
+                        "package": label, "page": page,
+                        "expected_path": want.upper(), "got": got,
+                        "signals": c and c.get("signals"),
+                        "flags": c and c.get("flags"),
+                    })
+    return CheckResult(
+        ctx.name(1), not failures,
+        f"{ctx.type_name} 기대 {total}p 중 {total - len(failures)}p 가 의도한 경로로 감 "
+        "(유형마다 도달 등급이 다른 명세 — 전부 RULE_HIGH가 기준이 아님)",
+        failures,
+    )
+
+
+def _check_v1_by_grade(ctx: _Checked) -> CheckResult:
+    targets = [(ctx.gt_label, p, ctx.primary.get(p)) for p in ctx.v1_gt_pages]
+    for label, entry in ctx.expected_pages.items():
+        pages = _by_page(ctx.classifications, label)
+        targets += [(label, p, pages.get(p)) for p in entry["expected"]]
+
+    failures = []
+    per_pkg: dict[str, tuple[int, int]] = {}
+    for label, page, c in targets:
+        reached = bool(c) and c["grade"] in ("RULE_HIGH", "RULE_MEDIUM")
+        if not reached:
+            failures.append(
+                {"package": label, "page": page, "grade": c["grade"] if c else "MISSING",
+                 "signals": c and c.get("signals"), "matches": c and c.get("matches")}
+            )
+        tot, ok = per_pkg.get(label, (0, 0))
+        per_pkg[label] = (tot + 1, ok + (1 if reached else 0))
+
+    breakdown = ", ".join(f"pkg{lb} {ok}/{tot}" for lb, (tot, ok) in sorted(per_pkg.items()))
+    return CheckResult(
+        ctx.name(1), not failures,
+        f"{ctx.type_name} 기대 {len(targets)}p 중 {len(targets) - len(failures)}p "
+        f"RULE_HIGH/MEDIUM 도달 ({breakdown})",
+        failures,
+    )
+
+
+# ── V2·V3: pages of another type must not fire this type's signals ──
+def _counter_example_pages(ctx: _Checked) -> list[tuple[str, int, dict]]:
+    others = [(ctx.gt_label, p, c) for p, c in ctx.primary.items()
+              if p not in set(ctx.gt_pages)]
+    for label, entry in ctx.expected_pages.items():
+        if label == ctx.gt_label:
             continue  # already covered above via the answer key
         skip = set(entry["expected"]) | set(entry["undecided"]) | set(entry["expected_vlm"])
-        others += [(label, p, c) for p, c in _by_page(classifications, label).items() if p not in skip]
+        others += [(label, p, c)
+                   for p, c in _by_page(ctx.classifications, label).items() if p not in skip]
+    return others
 
-    v2_fail = [
+
+def _check_v2(ctx: _Checked, others: list[tuple[str, int, dict]]) -> CheckResult:
+    failures = [
         {"package": lb, "page": p, "decisive": c["signals"]["decisive"], "matches": c["matches"]}
         for lb, p, c in others
         if c.get("signals", {}).get("decisive")
     ]
-    results.append(
-        CheckResult(name(2), not v2_fail,
-                    f"비-{type_name} {len(others)}p 에서 결정적 신호 오발 {len(v2_fail)}건", v2_fail)
-    )
+    return CheckResult(
+        ctx.name(2), not failures,
+        f"비-{ctx.type_name} {len(others)}p 에서 결정적 신호 오발 {len(failures)}건", failures)
 
-    v3_fail = [
+
+def _check_v3(ctx: _Checked, others: list[tuple[str, int, dict]]) -> CheckResult:
+    failures = [
         {"package": lb, "page": p, "supportive": c["signals"]["supportive"], "matches": c["matches"]}
         for lb, p, c in others
         if len(c.get("signals", {}).get("supportive", [])) >= 2
     ]
-    results.append(
-        CheckResult(name(3), not v3_fail,
-                    f"비-{type_name} {len(others)}p 에서 supportive≥2 동시 성립 {len(v3_fail)}건", v3_fail)
+    return CheckResult(
+        ctx.name(3), not failures,
+        f"비-{ctx.type_name} {len(others)}p 에서 supportive≥2 동시 성립 {len(failures)}건", failures)
+
+
+# ── V4: grouping + ordering against GT (+ per-package instance counts) ──
+def _check_v4(ctx: _Checked, groupings: dict, orderings: dict,
+              instance_expectations: dict | None,
+              markers_by_page: dict | None) -> CheckResult:
+    grouping = groupings.get(ctx.gt_label)
+    ordering = orderings.get(ctx.gt_label)
+    if grouping is None or ordering is None:
+        return CheckResult(ctx.name(4), False, "SKIPPED (--no-llm — 그룹핑 미수행)")
+
+    failures = _v4_answer_key_failures(ctx, grouping, ordering)
+    failures += _v4_shape_failures(ctx, groupings, instance_expectations, markers_by_page)
+
+    shape = f"{ctx.gt_label} 1 instance" + "".join(
+        f" / {lb} {sp['instances']} instance" + ("+related_to" if sp.get("require_related_to") else "")
+        for lb, sp in sorted((instance_expectations or {}).items())
+    )
+    return CheckResult(ctx.name(4), not failures,
+                       f"{shape} · GT 순서 일치" if not failures else "그룹핑/순서 불일치", failures)
+
+
+def _v4_answer_key_failures(ctx: _Checked, grouping: dict, ordering: dict) -> list[dict]:
+    """The package with an answer key: one instance, right pages, right order."""
+    failures = []
+    instances = grouping.get("instances", [])
+    if len(instances) != 1:
+        failures.append({"reason": f"instance 수 {len(instances)} (기대 1)",
+                         "instances": [i.get("pages") for i in instances]})
+    else:
+        got = sorted(instances[0].get("pages", []))
+        if got != ctx.v1_gt_pages:
+            failures.append({"reason": "instance 페이지 집합 불일치",
+                             "got": got, "expected": ctx.v1_gt_pages,
+                             "note": f"검증 제외 페이지 {sorted(ctx.excluded)}는 기대값에서 뺐다"})
+    if grouping.get("unresolved_pages"):
+        failures.append({"reason": "unresolved_pages 존재", "pages": grouping["unresolved_pages"]})
+    if not failures:  # order is only meaningful once the grouping itself is right
+        ordered = ordering["instances"][0].get("ordered_pages", [])
+        seq = [ctx.gt_by_page[p]["source_page"] for p in ordered]
+        if seq != sorted(seq):
+            failures.append({"reason": "순서 불일치", "ordered_input_pages": ordered,
+                             "gt_source_pages": seq})
+    return failures
+
+
+def _v4_shape_failures(ctx: _Checked, groupings: dict, instance_expectations: dict | None,
+                       markers_by_page: dict | None) -> list[dict]:
+    """Packages without an answer key can still assert a shape.
+
+    Instance count, whether the design requires the instances to be related,
+    and — because a count can be right for the wrong reason — the design's
+    actual rules, checked directly.
+    """
+    failures = []
+    for label, spec in (instance_expectations or {}).items():
+        g = groupings.get(label)
+        if g is None:
+            failures.append({"package": label, "reason": "그룹핑 결과 없음 (범위 밖일 수 있음)"})
+            continue
+        got_n = len(g.get("instances", []))
+        if got_n != spec["instances"]:
+            failures.append({"package": label,
+                             "reason": f"instance 수 {got_n} (기대 {spec['instances']})",
+                             "instances": [i.get("pages") for i in g.get("instances", [])]})
+        if spec.get("require_related_to") and not any(
+            i.get("related_to") for i in g.get("instances", [])
+        ):
+            failures.append({"package": label, "reason": "related_to 기록 없음 (설계 §4-1 요구)"})
+        # A marker number may not repeat inside one instance (title_report.md §4-1).
+        if spec.get("no_duplicate_markers"):
+            failures += _duplicate_marker_failures(
+                label, g, (markers_by_page or {}).get(label, {})
+            )
+        if spec.get("vlm_pages_unresolved"):
+            failures += _v4_boilerplate_failures(ctx, label, g)
+    return failures
+
+
+def _v4_boilerplate_failures(ctx: _Checked, label: str, grouping: dict) -> list[dict]:
+    """Boilerplate shared by every copy cannot be attributed to one of them.
+
+    So "unassigned" is the correct output (title_report.md §4-2-1). The page
+    list lives in config, not here.
+    """
+    want = set(ctx.expected_pages.get(label, {}).get("expected_vlm", []))
+    got = set(grouping.get("unresolved_pages", []))
+    if not want - got:
+        return []
+    return [{
+        "package": label,
+        "reason": "약관(공통 인쇄물) 페이지가 unresolved에 없음 — 설계 §4-2-1은 귀속 미정을 요구",
+        "expected_unresolved": sorted(want),
+        "got_unresolved": sorted(got),
+        "assigned_instead": {
+            i.get("instance_id"): sorted(set(i.get("pages", [])) & (want - got))
+            for i in grouping.get("instances", [])
+            if set(i.get("pages", [])) & (want - got)
+        },
+    }]
+
+
+# ── V5 (CREDIT only): vendor-independent coverage, measure only ──
+def _check_v5_coverage(ctx: _Checked, universal_only: dict) -> CheckResult:
+    # Measured over the same population V1 judges, so the two are comparable.
+    reached = [p for p in ctx.v1_gt_pages
+               if universal_only.get(p) in ("RULE_HIGH", "RULE_MEDIUM")]
+    by_grade: dict[str, int] = {}
+    for p in ctx.v1_gt_pages:
+        grade = universal_only.get(p, "MISSING")
+        by_grade[grade] = by_grade.get(grade, 0) + 1
+    return CheckResult(
+        ctx.name(5), True,
+        f"[측정] universal 신호만으로 {len(reached)}/{len(ctx.v1_gt_pages)}p 도달 "
+        f"(벤더 레이어 제외 — 합격 기준 없음)",
+        measurement={
+            "reached": len(reached), "total": len(ctx.v1_gt_pages),
+            "pages_reached": reached,
+            "pages_missed": [p for p in ctx.v1_gt_pages if p not in reached],
+            "grade_distribution": by_grade,
+        },
     )
 
-    # ── V4: grouping + ordering against GT (+ per-package instance counts) ──
-    if grouping is None or ordering is None:
-        results.append(CheckResult(name(4), False, "SKIPPED (--no-llm — 그룹핑 미수행)"))
-    else:
-        v4_fail = []
-        instances = grouping.get("instances", [])
-        if len(instances) != 1:
-            v4_fail.append({"reason": f"instance 수 {len(instances)} (기대 1)",
-                            "instances": [i.get("pages") for i in instances]})
-        else:
-            got = sorted(instances[0].get("pages", []))
-            if got != v1_gt_pages:
-                v4_fail.append({"reason": "instance 페이지 집합 불일치",
-                                "got": got, "expected": v1_gt_pages,
-                                "note": f"검증 제외 페이지 {sorted(excluded)}는 기대값에서 뺐다"})
-        if grouping.get("unresolved_pages"):
-            v4_fail.append({"reason": "unresolved_pages 존재", "pages": grouping["unresolved_pages"]})
-        if not v4_fail:
-            ordered = ordering["instances"][0].get("ordered_pages", [])
-            seq = [gt_by_page[p]["source_page"] for p in ordered]
-            if seq != sorted(seq):
-                v4_fail.append({"reason": "순서 불일치", "ordered_input_pages": ordered,
-                                "gt_source_pages": seq})
 
-        # Packages without an answer key can still assert a shape (instance
-        # count, and whether the design requires the instances to be related).
-        for label, spec in (instance_expectations or {}).items():
-            g = groupings.get(label)
-            if g is None:
-                v4_fail.append({"package": label, "reason": "그룹핑 결과 없음 (범위 밖일 수 있음)"})
-                continue
-            got_n = len(g.get("instances", []))
-            if got_n != spec["instances"]:
-                v4_fail.append({"package": label,
-                                "reason": f"instance 수 {got_n} (기대 {spec['instances']})",
-                                "instances": [i.get("pages") for i in g.get("instances", [])]})
-            if spec.get("require_related_to") and not any(
-                i.get("related_to") for i in g.get("instances", [])
-            ):
-                v4_fail.append({"package": label, "reason": "related_to 기록 없음 (설계 §4-1 요구)"})
-            # An instance count alone can be right for the wrong reason, so the
-            # design's actual rule is checked directly: a marker number may not
-            # repeat inside one instance (title_report.md §4-1).
-            if spec.get("no_duplicate_markers"):
-                v4_fail += _duplicate_marker_failures(
-                    label, g, (markers_by_page or {}).get(label, {})
-                )
-            # Boilerplate shared by every copy cannot be attributed to one of
-            # them, so "unassigned" is the correct output (title_report.md
-            # §4-2-1). The page list lives in config, not here.
-            if spec.get("vlm_pages_unresolved"):
-                want = set(expected_pages.get(label, {}).get("expected_vlm", []))
-                got = set(g.get("unresolved_pages", []))
-                if want - got:
-                    v4_fail.append({
-                        "package": label,
-                        "reason": "약관(공통 인쇄물) 페이지가 unresolved에 없음 — 설계 §4-2-1은 귀속 미정을 요구",
-                        "expected_unresolved": sorted(want),
-                        "got_unresolved": sorted(got),
-                        "assigned_instead": {
-                            i.get("instance_id"): sorted(set(i.get("pages", [])) & (want - got))
-                            for i in g.get("instances", [])
-                            if set(i.get("pages", [])) & (want - got)
-                        },
-                    })
-
-        shape = f"{gt_label} 1 instance" + "".join(
-            f" / {lb} {sp['instances']} instance" + ("+related_to" if sp.get("require_related_to") else "")
-            for lb, sp in sorted((instance_expectations or {}).items())
-        )
-        results.append(
-            CheckResult(name(4), not v4_fail,
-                        f"{shape} · GT 순서 일치" if not v4_fail else "그룹핑/순서 불일치", v4_fail)
-        )
-
-    # ── V5 (CREDIT only): vendor-independent coverage, measure only ──
-    if universal_only is not None:
-        # Measured over the same population V1 judges, so the two are comparable.
-        reached = [p for p in v1_gt_pages if universal_only.get(p) in ("RULE_HIGH", "RULE_MEDIUM")]
-        by_grade: dict[str, int] = {}
-        for p in v1_gt_pages:
-            by_grade[universal_only.get(p, "MISSING")] = by_grade.get(universal_only.get(p, "MISSING"), 0) + 1
-        results.append(
-            CheckResult(
-                name(5), True,
-                f"[측정] universal 신호만으로 {len(reached)}/{len(v1_gt_pages)}p 도달 "
-                f"(벤더 레이어 제외 — 합격 기준 없음)",
-                measurement={
-                    "reached": len(reached), "total": len(v1_gt_pages),
-                    "pages_reached": reached,
-                    "pages_missed": [p for p in v1_gt_pages if p not in reached],
-                    "grade_distribution": by_grade,
-                },
-            )
-        )
-
-    # ── V6 (final type): rule + LLM together land on this type ──
-    # A page can legitimately reach the type through the LLM rather than the
-    # rules, so this asks about the end state, not the path.
-    if require_final_type:
-        final_fail = []
-        for label, entry in sorted(expected_pages.items()):
-            pages = _by_page(classifications, label)
-            for page in entry["expected"]:
-                c = pages.get(page)
-                if c is None or c.get("type") != type_name:
-                    final_fail.append({
-                        "package": label, "page": page,
-                        "rule_grade": c and c.get("rule_grade"),
-                        "final_grade": c and c.get("grade"),
-                        "got_type": c.get("type") if c else None,
-                        "llm": c.get("llm") if c else None,
-                    })
-        total_final = sum(len(e["expected"]) for e in expected_pages.values())
-        results.append(
-            CheckResult(
-                name(6), not final_fail,
-                f"기대 {total_final}p 가 최종적으로 {type_name} 으로 확정 "
-                f"({total_final - len(final_fail)}p 성공)",
-                final_fail,
-            )
-        )
-
-    # ── V6 (types with image pages): VLM classification ──────
-    vlm_targets = [
-        (label, p)
-        for label, entry in expected_pages.items()
-        for p in entry["expected_vlm"]
-    ]
-    if vlm_targets:
-        v6_fail = []
-        for label, page in vlm_targets:
-            c = _by_page(classifications, label).get(page)
-            if c is None or c.get("type") != type_name:
-                v6_fail.append({
+# ── V6 (final type): rule + LLM together land on this type ───
+def _check_v6_final_type(ctx: _Checked) -> CheckResult:
+    """A page may legitimately reach the type through the LLM rather than the
+    rules, so this asks about the end state, not the path."""
+    failures = []
+    for label, entry in sorted(ctx.expected_pages.items()):
+        pages = _by_page(ctx.classifications, label)
+        for page in entry["expected"]:
+            c = pages.get(page)
+            if c is None or c.get("type") != ctx.type_name:
+                failures.append({
                     "package": label, "page": page,
-                    "grade": c["grade"] if c else "MISSING",
+                    "rule_grade": c and c.get("rule_grade"),
+                    "final_grade": c and c.get("grade"),
                     "got_type": c.get("type") if c else None,
-                    "vlm": c.get("llm") if c else None,
+                    "llm": c.get("llm") if c else None,
                 })
-        results.append(
-            CheckResult(
-                name(6), not v6_fail,
-                f"스캔 {len(vlm_targets)}p 중 {len(vlm_targets) - len(v6_fail)}p "
-                f"VLM이 {type_name}으로 판정",
-                v6_fail,
-            )
-        )
-    return results
+    total = sum(len(e["expected"]) for e in ctx.expected_pages.values())
+    return CheckResult(
+        ctx.name(6), not failures,
+        f"기대 {total}p 가 최종적으로 {ctx.type_name} 으로 확정 "
+        f"({total - len(failures)}p 성공)",
+        failures,
+    )
+
+
+# ── V6 (types with image pages): VLM classification ──────────
+def _check_v6_vlm(ctx: _Checked) -> CheckResult | None:
+    """None when this type has no image-only pages to judge."""
+    targets = [(label, p)
+               for label, entry in ctx.expected_pages.items()
+               for p in entry["expected_vlm"]]
+    if not targets:
+        return None
+    failures = []
+    for label, page in targets:
+        c = _by_page(ctx.classifications, label).get(page)
+        if c is None or c.get("type") != ctx.type_name:
+            failures.append({
+                "package": label, "page": page,
+                "grade": c["grade"] if c else "MISSING",
+                "got_type": c.get("type") if c else None,
+                "vlm": c.get("llm") if c else None,
+            })
+    return CheckResult(
+        ctx.name(6), not failures,
+        f"스캔 {len(targets)}p 중 {len(targets) - len(failures)}p "
+        f"VLM이 {ctx.type_name}으로 판정",
+        failures,
+    )
 
 
 def layer_contribution(classifications: list[dict], type_name: str) -> dict:
