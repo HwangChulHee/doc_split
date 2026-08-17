@@ -1,12 +1,8 @@
 # docsplit
 
-Page-level classification and document grouping for merged mortgage loan
-document packages.
-
-A loan package arrives as a single PDF holding several distinct documents whose
-pages have been shuffled together. `docsplit` classifies each page by document
-type (`URLA_1003` / `CREDIT_REPORT` / `TITLE_REPORT` / `INCOME_DOC` / `OTHER`),
-groups the pages back into document instances, and restores their order.
+여러 대출 서류가 페이지 단위로 뒤섞인 하나의 PDF를 입력받아, 각 페이지를 문서
+유형(`URLA_1003` / `CREDIT_REPORT` / `TITLE_REPORT` / `INCOME_DOC` / `OTHER`)으로
+분류하고, 문서 단위로 다시 묶은 뒤 문서 내 페이지 순서를 복원하는 파이프라인입니다.
 
 ## Quick Start
 
@@ -14,39 +10,81 @@ groups the pages back into document instances, and restores their order.
 git clone <repo> && cd doc_split
 ```
 
-Put the PDFs you were given into `data/` — original file names, no subdirectory
-layout required. A file whose name contains `shuffled` is treated as a package
-to classify; the others are treated as answer keys and typed by a keyword in
-their name (`1003`/`URLA`, `Credit`, `Title`, `INCOME`/`P&L`, …).
+전달받은 PDF들을 `data/` 에 **원본 파일명 그대로** 넣어주세요. 하위 디렉토리를
+만들 필요는 없습니다. 파일명에 `shuffled` 가 포함되면 분류 대상 패키지로,
+나머지는 정답 원본으로 인식합니다 (파일명 키워드 기준: `1003`/`URLA`, `Credit`,
+`Title`, `INCOME`/`P&L` 등).
 
 ```bash
-cp .env.example .env      # put your OPENAI_API_KEY in it
+cp .env.example .env      # OPENAI_API_KEY 입력
 uv run docsplit run
 ```
 
-Outputs:
-
-| 경로 | 내용 |
+| 산출 경로 | 내용 |
 |---|---|
-| `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, (정답이 있으면) 검증 리포트 |
-| `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보를 포함하므로 커밋하지 않는다 |
+| `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, (정답이 있는 경우) 검증 리포트 |
+| `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보가 포함되므로 커밋하지 않습니다 |
 
-API 키 없이 규칙 판정만 돌려보려면:
+API 키 없이 규칙 판정까지만 실행할 수도 있습니다:
 
 ```bash
 uv run docsplit run --no-llm
 ```
 
-옵션: `--data-dir` `--out-dir` `--results-dir` `--no-llm`
+전체 실행 시 LLM 호출은 패키지 2개 기준 십수 회이고, 비용은 1~2센트 수준입니다
+(gpt-5.4-mini). 호출 결과는 캐싱되므로 재실행 시에는 API 호출이 발생하지 않습니다.
 
-## 접근 방식 요약
+## 접근 방식
 
-규칙은 **표본에서 귀납하지 않고 준거 문서에서 연역한다.** 결정적 신호로 쓰는
-문구는 공개된 표준 양식·정부 발행물·벤더 제품 문서에서 확인된 것이어야 하며,
-데이터셋에서만 관찰된 문구(렌더러 코드, 페이지 번호 체계, 입력값)는 규칙이 아니라
-그룹핑 근거로만 쓴다.
+### 규칙은 데이터가 아니라 준거 문서에서 가져왔습니다
 
-<!-- TODO: 신호 계층(normative/domain/vendor/deployment) 모델과 근거 등급 설명 -->
+정답이 있는 패키지가 39페이지뿐이라, 여기서 규칙을 뽑아내면 이 표본에만 맞는
+규칙이 됩니다. 그래서 방향을 반대로 잡았습니다. 각 문서 유형의 준거 문서
+(공식 표준 양식, 정부 발행물, 벤더 제품 문서)를 직접 확보해서 데이터와
+대조했고, **준거가 보증하는 문구만 결정론적 규칙으로 채택**했습니다.
+
+| 유형 | 확보한 준거 | 근거 등급 |
+|---|---|---|
+| URLA_1003 | Fannie Mae·Freddie Mac 공식 blank 양식 (양쪽 모두) | 표준 검증 |
+| CREDIT_REPORT | 벤더(Xactus) 공식 Reference Guide 3종 | 벤더 문서 검증 |
+| TITLE_REPORT | 2021 ALTA Commitment blank (주 규제기관 게시본) + 벤더 가이드 | 협회 표준 / 벤더 문서 |
+| INCOME_DOC | IRS transcript 공식 샘플·안내, IRS 양식 blank 5종 | 정부 표준 |
+
+대조 과정에서 얻은 것이 많았습니다. 예를 들어 URLA의 페이지 번호(`3 of 11`)는
+공식 blank 양식에 존재하지 않는, 렌더링 시스템이 찍는 값이라는 것을 확인했습니다.
+그래서 분류 규칙에서 배제하고 그룹핑의 경보 신호로 돌렸습니다. 이런 판별 기록은
+`docs/analysis/` 에 유형별로 남겨두었습니다.
+
+### 신호마다 출처 계층을 달았습니다
+
+모든 신호에 출처 계층(layer)을 표기했습니다. 계층이 곧 그 규칙이 어디까지
+유효한지를 말해줍니다.
+
+| layer | 정의 | 예 | 규칙 채택 |
+|---|---|---|---|
+| `normative` | 법·정부·표준협회가 강제 | ALTA 저작권 고지, IRS transcript 헤더, GSE 양식 푸터 | ✅ |
+| `domain` | 업계 구조상 필연 | 신용 bureau 3사 동시 등장, 세무 특이어 조합 | ✅ |
+| `vendor` | 특정 벤더 제품 명세 | Xactus tradeline 필드명, Fidelity 푸터 | ✅ 분리 레이어로 관리 — 벤더 추가는 정책 블록 추가로 대응 |
+| `deployment` | 고객사 설정·조판·인쇄 | 페이지 번호, 인쇄 코드, 고객사명 | ❌ 그룹핑 재료로만 사용 |
+
+### 점수를 만들지 않았습니다
+
+가중치 합산 방식은 쓰지 않았습니다. "푸터 10점, 섹션 제목 5점" 같은 점수는
+왜 그 숫자인지 답할 수 없고, 결국 데이터에 맞춰 조정하게 되기 때문입니다.
+대신 신호를 결정적/지지적 두 등급으로 나누고, 결정적 1개면 확정, 지지적 2개
+(서로 다른 종류)면 판정, 그 미만이면 LLM으로 넘기는 단순한 결합만 사용했습니다.
+임계값이 1과 2뿐이라 조정할 자유도 자체가 없습니다. 정답 데이터는 규칙 튜닝에
+쓰지 않고 검산 용도로만 사용했습니다.
+
+### 규칙이 확신하지 못하면 LLM으로, LLM도 확신하지 못하면 UNRESOLVED로
+
+- 규칙이 확정하지 못한 페이지만 LLM(gpt-5.4-mini)으로 보냅니다. 5개 유형
+  후보와 함께 각 유형의 규칙 평가 결과를 동봉해서 페이지당 1회 호출합니다.
+- 텍스트가 없는 스캔 페이지는 렌더링 이미지를 같은 모델의 비전 입력으로
+  판정합니다.
+- 그룹핑과 순서 복원은 코드가 신호(이름·ID·페이지 마커)를 수집하고 LLM이
+  판단하되, 모든 판단에 근거(evidence)를 남기게 했습니다.
+- 확신이 서지 않으면 UNRESOLVED로 출력합니다. 억지로 배정하지 않습니다.
 
 ## 파이프라인 구조
 
@@ -54,100 +92,122 @@ uv run docsplit run --no-llm
 data/*.pdf
    │
    ▼
-[1] 텍스트 추출            PyMuPDF, 페이지별 원문 + 메타데이터
-   │
+[1] 텍스트 추출          PyMuPDF — 페이지 원문 + 메타데이터
    ▼
-[2] 규칙 분류              4개 정책을 페이지마다 동시 평가
-   │                      → 한 유형만 결정적이면 확정, 겹치면 LLM으로
+[2] 규칙 분류            4개 정책(policies/*.yaml)을 페이지마다 동시 평가
+   │                     RULE_HIGH > RULE_MEDIUM 우선순위로 확정
+   ├─ 미확정 ──► [3] LLM 분류    5유형 후보 + 규칙 평가 결과 동봉, 페이지당 1회
+   ├─ 텍스트 없음 ► [4] VLM       dpi 150 렌더링 → 비전 분류
    ▼
-[3] LLM / VLM 판정         규칙이 못 정한 페이지만. 텍스트 없는 페이지는 이미지로
-   │
+[5] 신호 카드            그룹핑 재료 수집 (이름·ID·마커·코드 — 후보 수집만, 확정하지 않음)
    ▼
-[4] 신호 카드              regex + PDF 좌표로 그룹핑 근거 추출
-   │
+[6] 그룹핑 (LLM)         유형별 문서 instance 묶기 — evidence 필수, UNRESOLVED 허용
    ▼
-[5] 그룹핑                 LLM — 같은 문서의 페이지끼리 instance로
-   │
+[7] 순서 복원 (코드)      마커가 온전하면 마커 정렬, 아니면 표준 구조 순서로 폴백
    ▼
-[6] 순서 복원              코드 — 페이지 마커 우선, 없으면 구성 순서 폴백
-   │
-   ▼
-results/
+results/                 분류 CSV · 문서 구성 JSON · 요약 · 검증 리포트
 ```
 
-<!-- TODO: 각 단계의 입출력과 판정 우선순위 상세 -->
-
-## 설계 원칙과 근거
-
-유형마다 기준서가 있고, 그 기준서는 준거 문서 대조 분석에 근거한다.
-
-| 유형 | 기준서 | 근거 분석 |
-|---|---|---|
-| URLA_1003 | [urla.md](docs/classification/urla.md) | [urla_standard_analysis.md](docs/analysis/urla_standard_analysis.md) |
-| CREDIT_REPORT | [credit_report.md](docs/classification/credit_report.md) | [credit_vendor_analysis.md](docs/analysis/credit_vendor_analysis.md) |
-| TITLE_REPORT | [title_report.md](docs/classification/title_report.md) | [title_standard_analysis.md](docs/analysis/title_standard_analysis.md) |
-| INCOME_DOC | [income_doc.md](docs/classification/income_doc.md) | [income_standard_analysis.md](docs/analysis/income_standard_analysis.md) |
-
-도메인 배경: [domain_knowledge.md](docs/domain_knowledge.md)
-
-<!-- TODO: 핵심 설계 결정 5~6개를 근거와 함께 요약 (준거 등급, 임계값을 튜닝하지
-     않는 이유, OTHER에 정책을 두지 않는 이유, 실패를 남기는 이유) -->
+정책과 프롬프트는 코드에서 분리해 두었습니다 (`src/docsplit/policies/`,
+`src/docsplit/prompts/`). 규칙이 무엇인지 보려면 yaml을, LLM에 무엇을 지시했는지
+보려면 md 파일을 열면 됩니다. 유형이나 벤더를 추가할 때는 파일만 추가하면 되고
+엔진 코드는 수정하지 않는 구조입니다.
 
 ## 결과
 
-<!-- TODO: 아래 수치는 results/ 산출물에서 옮겨온 것 — 재실행 시 갱신 -->
+### package_01 (정답 대조)
 
-정답 원본이 제공된 패키지 기준:
+| 항목 | 결과 |
+|---|---|
+| 페이지 분류 | **38/39 (97.4%)**, macro F1 0.943 |
+| 그룹핑 | 4개 문서 instance 모두 정확 |
+| 순서 복원 | URLA 11장·TITLE 8장 완전 복원. CREDIT은 마커가 있는 11장 복원, 없는 7장은 미해결 |
 
-- 페이지 분류 accuracy **0.974** (39장 중 38장), macro F1 **0.985**
-- URLA_1003 / CREDIT_REPORT / INCOME_DOC F1 1.000, TITLE_REPORT 0.941
+유일한 분류 불일치는 오분류가 아니라 의도된 미확정입니다. plat map이 제거된
+자리 페이지는 텍스트 근거가 물리적으로 존재하지 않는데, 시스템이 이를
+UNRESOLVED로 출력했습니다. 근거 없는 페이지를 추측으로 배정하지 않는다는 원칙을
+그대로 따른 결과이고, 이 1페이지를 잡기 위해 규칙을 데이터에 맞추는 일은 하지
+않았습니다.
 
-상세: [results/package_01/evaluation.md](results/package_01/evaluation.md)
-정답이 없는 패키지의 산출: [results/package_02/summary.md](results/package_02/summary.md)
+### package_02 (정답 없음 — 최종 분류 결과)
+
+| 유형 | 페이지 수 |
+|---|---|
+| CREDIT_REPORT | 15 |
+| TITLE_REPORT | 14 (스캔 3장의 VLM 판정 포함) |
+| URLA_1003 | 10 |
+| INCOME_DOC | 4 |
+| UNRESOLVED | 1 (유형 신호가 고지문 한 줄뿐인 transcript 연속장) |
+
+판정 경로는 규칙 37장(84%) / LLM 3장 / VLM 3장 / 미확정 1장입니다.
+문서 구성은 4개 유형에서 총 4개 instance이고, 귀속을 정하지 않은 페이지들이
+있습니다. 예를 들어 Commitment 약관 3장은 거의 동일한 Commitment 두 벌 중
+어느 쪽의 부속인지 판별할 근거가 원리적으로 없어서 귀속 미정으로 남겼습니다.
+상세한 사유는 `results/package_02/summary.md` 에 적어두었습니다.
+
+### 비용
+
+개발 전 기간 API 누적 지출은 $0.086입니다 (캐싱 포함). 심사 1회 실행 기준으로는
+약 $0.01이 예상됩니다.
+
+## 설계 결정과 근거
+
+주요 결정과 검토했던 대안들은 `docs/` 에 유형별로 기록해 두었습니다.
+
+- `docs/domain_knowledge.md` — 모기지 서류 도메인 정리 (유형별 기능·발행 주체·표준화 수준)
+- `docs/classification/*.md` — 유형별 신호 정의·근거 등급·알려진 한계
+- `docs/analysis/*.md` — 준거 문서 확보 경위와 기계 대조 결과
+
+채택하지 않은 방법들과 그 이유는 다음과 같습니다.
+
+| 대안 | 배제 이유 |
+|---|---|
+| supervised ML 분류기 | 표본이 39페이지에 클래스 불균형(INCOME 1장)이 심하고 문서 다양성이 없어 학습이 성립하지 않습니다. 성립하는 것처럼 보여도 이 표본에 대한 과적합입니다 |
+| 전 페이지 LLM 분류 | 규칙만으로 84%가 확정되는 상황에서 전량 LLM은 비용·재현성·설명력 모두에서 불리합니다. LLM은 규칙이 확신하지 못하는 잔여 페이지에만 사용했습니다 |
+| 임의 가중치 점수제 | 왜 그 숫자인지 답할 수 없는 값은 쓰지 않았습니다 |
+| 페이지 번호 기반 분류 | 표준 blank에 페이지 번호가 없다는 것을 확인했습니다. 렌더링 산물은 분류가 아니라 그룹핑 신호로 썼습니다 |
 
 ## 알려진 한계와 개선 방향
 
-<!-- TODO: 각 항목의 근거 문서 링크 -->
-
-전체 목록과 "고치지 않기로 한 이유"는 [known_limits.md](docs/classification/known_limits.md).
-
-- **발행 경로와 기능이 충돌하는 경계 문서**(신용 벤더가 배달한 고용 검증)는 규칙이
-  발행 경로 쪽으로 판정한다. 이 한 장을 뒤집으려면 벤더 신호 규칙에 예외를 두거나
-  기능 판정을 하드코딩해야 해서, 원칙을 지키고 오답을 수용했다.
-- **내용이 제거된 페이지**(도면 자리)는 텍스트 근거가 없어 미판정으로 남긴다 —
-  정확도 1/39 감점을 의도적으로 받아들인 결과다.
-- **같은 문서의 두 출력본 분리**는 페이지 마커 중복으로 감지하지만, 두 벌을
-  장 단위로 짝지을 근거가 신호 카드에 실리지 않아 미해결이다.
-- **정해진 서식이 없는 문서**(개인·세무사 작성 손익 명세)는 규칙이 커버하지
-  못한다. 형식 표준 부재가 GSE 지침으로 확인됐고 어휘 프로브 32종이 0건이었다.
-  현재는 LLM이 금액 구조와 작성자 맥락으로 맞히지만, 틀려도 잡을 규칙이 없다.
+1. **무표준 개인 작성물(P&L 등)은 규칙으로 커버할 수 없습니다.** GSE
+   가이드라인조차 형식을 요구하지 않는다는 것을 확인했습니다(내용 3요소와
+   서명만 요구). LLM의 의미 판단이 유일한 경로이고 그 뒤에 안전망이 없습니다.
+2. **발행 경로와 기능이 충돌하는 경계 문서가 있습니다.** 신용조회 벤더가 배달한
+   고용 검증 페이지는 발행 경로로 보면 CREDIT, 기능으로 보면 INCOME입니다.
+   라벨링 정책상 기능 기준(INCOME)이 맞다고 판단했지만 규칙과 LLM 모두 CREDIT을
+   선택했고, 이 한 페이지를 위해 예외 규칙을 넣는 것은 원칙을 해친다고 보아
+   한계로 남겼습니다.
+3. **마커 없는 본문 연속 페이지는 순서를 복원하지 못합니다.** 신용보고서의
+   tradeline 표 연속장이 해당합니다. 벤더 문서의 섹션 나열 순서를 거시 순서로
+   쓰고 마커를 미시 순서로 조합하는 방식을 개선 방향으로 보고 있습니다.
+4. **동일 문서의 두 출력본을 짝 맞추는 재료가 부족합니다.** 두 벌의 신호
+   카드가 동일해서(값 차이가 보험금액 한 줄) 벌을 가를 수 없었습니다. 마커
+   충돌이 감지되면 해당 페이지 원문을 그룹핑 입력에 동봉하는 내용 기반 경로를
+   개선안으로 남겨둡니다.
+5. **벤더 레이어에는 데이터에 등장한 벤더만 등록되어 있습니다.** 미등록 벤더의
+   문서는 universal 신호(측정 결과 CREDIT 기준 83% 커버)와 LLM 경로로
+   처리됩니다. 신규 벤더 지원은 정책 블록 추가로 가능합니다.
+6. **VLM은 저해상도와 회전이 겹치면 판독에 실패할 수 있습니다.** dpi 120에서
+   180° 회전된 스캔의 판독이 실패했고 150으로 올려 해결했습니다. 회전 보정보다
+   해상도 상향을 먼저 시도하는 것이 낫다는 것을 기록해 둡니다.
 
 ## 프로젝트 구조
 
 ```text
 src/docsplit/
-  cli.py            docsplit run — 통합 실행
-  discover.py       입력 파일 역할 인식
-  unified.py        4개 정책 동시 평가 + 판정 우선순위
-  pdf_parser.py     텍스트 추출
-  signals.py        정책 로딩·신호 평가
-  classify.py       결합 규칙(등급 산출)
-  cards.py          신호 카드 추출
-  grouping.py       그룹핑(LLM 호출) + 순서 복원(코드)
-  llm.py            OpenAI 래퍼, 프롬프트 렌더링, 디스크 캐시
-  evaluate.py       개발용 검증(V1~V6)
-  results.py        results/ 산출물
-  policies/*.yaml   유형별 신호 정의
-  prompts/*.md      LLM 지시문
-docs/               도메인 지식, 유형별 기준서, 준거 대조 분석, 알려진 한계, 핸드오프
-scripts/            준거 문서 대조용 일회성 관찰 스크립트
-tests/              결합 규칙·순서 경로 단위 테스트
-config/             개발용 검증 기대값 (실행에는 불필요)
-data/reference/     공개 준거 문서 (표준 양식·정부 발행물)
-```
+├── policies/        # 유형별 신호 정책 (yaml) — 규칙의 전부가 여기 있습니다
+├── prompts/         # LLM 지시문 (md) — 수정 이력을 주석으로 남겼습니다
+├── normalize.py     # 텍스트 정규화 (특수문자·공백·인용부호 통일)
+├── signals.py       # 정책 로드·신호 매칭
+├── classify.py      # 등급 결합 판정
+├── cards.py         # 신호 카드 추출 (regex + AcroForm 폼필드)
+├── grouping.py      # LLM 그룹핑 + 순서 복원
+├── llm.py           # OpenAI 클라이언트 · 캐싱 · 사용량 집계
+├── ground_truth.py  # 정답 빌더 (원본 PDF를 보는 유일한 모듈)
+├── evaluate.py      # 검증 리포트
+└── cli.py           # docsplit run
 
-개발 중에는 유형별 파이프라인을 따로 돌릴 수 있다 (검증 리포트 포함):
-
-```bash
-uv run python -m docsplit.urla_pipeline --package both
+docs/                # 도메인 지식 · 유형별 설계 기준서 · 준거 대조 분석
+data/reference/      # 확보한 준거 문서 (커밋 가부는 출처별로 다름 — SOURCES.md 참조)
+tests/               # 판정·정렬 로직 합성 케이스
 ```
