@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "expected_pages.yaml"
+CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "expected_pages.yaml"
 
 
 @dataclass

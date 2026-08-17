@@ -1,10 +1,10 @@
 """URLA pipeline entry point.
 
 Usage:
-    uv run python -m docsplit.urla_pipeline --data-dir data --out-dir outputs
+    uv run python -m docsplit.dev.urla_pipeline --data-dir data --out-dir outputs
     options: --no-llm, --package {01,02,both} (default 01)
 
-The stages live in docsplit.pipeline; this module only binds the URLA policy.
+The stages live in docsplit.dev.pipeline; this module only binds the URLA policy.
 """
 
 from __future__ import annotations

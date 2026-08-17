@@ -5,7 +5,7 @@ a fallback but a designed path: some subgroups (a hand-written P&L, a vendor's
 verification summary) carry no rule signal at all, which the policy declares
 via ``llm.classify_on_no_signal``.
 
-  uv run python -m docsplit.income_pipeline --data-dir data --out-dir outputs
+  uv run python -m docsplit.dev.income_pipeline --data-dir data --out-dir outputs
 """
 
 from __future__ import annotations

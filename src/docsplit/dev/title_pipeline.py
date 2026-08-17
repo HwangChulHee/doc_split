@@ -3,7 +3,7 @@
 Spec: docs/classification/title_report.md. This is the first type whose pages
 include image-only scans, so the VLM branch of pipeline.run is exercised here.
 
-  uv run python -m docsplit.title_pipeline --data-dir data --out-dir outputs
+  uv run python -m docsplit.dev.title_pipeline --data-dir data --out-dir outputs
 """
 
 from __future__ import annotations

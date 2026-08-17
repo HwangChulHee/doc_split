@@ -1,7 +1,7 @@
 """Parse every PDF in a data directory and export page-level artifacts.
 
 Usage:
-    uv run python -m docsplit.parse --data-dir data --out-dir outputs
+    uv run python -m docsplit.ingest.parse --data-dir data --out-dir outputs
 
 Outputs (under --out-dir):
     parsed/<slug>.jsonl          one JSON record per page (includes raw text)

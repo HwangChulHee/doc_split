@@ -209,7 +209,7 @@ def dataset_pages() -> tuple[list[tuple[str, int, str]], dict]:
     if income01 is None or len(packages) < 2:
         raise SystemExit(
             f"{parsed} 에서 대상 파일을 찾지 못했습니다 — 먼저 파싱을 실행하세요: "
-            "uv run python -m docsplit.parse"
+            "uv run python -m docsplit.ingest.parse"
         )
     studied: list[tuple[str, int, str]] = []
     for rec in (json.loads(l) for l in income01.open(encoding="utf-8")):

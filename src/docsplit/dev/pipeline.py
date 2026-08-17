@@ -1,7 +1,7 @@
 """Shared pipeline: [1] classify -> [2] signal cards -> [3] grouping -> [4] ordering + checks.
 
 One implementation drives every document type; the type is selected by policy
-name (``docsplit.urla_pipeline`` / ``docsplit.credit_pipeline`` are thin entry
+name (``docsplit.dev.urla_pipeline`` / ``docsplit.dev.credit_pipeline`` are thin entry
 points). Nothing here is type-specific — phrases, thresholds, card fields,
 prompts, and fallback ordering all come from the policy file.
 
@@ -23,22 +23,22 @@ from pathlib import Path
 
 import pymupdf
 
-from .rules.cards import apply_vlm_extract, build_card
-from .rules.classify import classify_page
+from ..rules.cards import apply_vlm_extract, build_card
+from ..rules.classify import classify_page
 from .evaluate import (
     layer_contribution,
     load_expected_pages,
     render_report,
     run_verifications,
 )
-from .llm.grouping import group_pages, order_instances
-from .ingest.discover import discover_inputs
-from .output.ground_truth import build_ground_truth
-from .llm.client import LLMClient, LLMDisabled
-from .rules.normalize import PageText
-from .ingest.pdf_parser import render_page_png, slugify
-from .rules.signals import available_policies, evaluate_universal_only, load_policy
-from .rules.classify import grade_for
+from ..llm.grouping import group_pages, order_instances
+from ..ingest.discover import discover_inputs
+from ..output.ground_truth import build_ground_truth
+from ..llm.client import LLMClient, LLMDisabled
+from ..rules.normalize import PageText
+from ..ingest.pdf_parser import render_page_png, slugify
+from ..rules.signals import available_policies, evaluate_universal_only, load_policy
+from ..rules.classify import grade_for
 
 PACKAGE_LABEL_RE = re.compile(r"^(\d+)\.")
 VLM_DPI = 150  # title_report.md §7 — enough to read headers/footers off a scan
@@ -62,7 +62,7 @@ def discover_packages(data_dir: Path, parsed_dir: Path) -> dict[str, tuple[Path,
 
 def load_parsed(path: Path) -> list[dict]:
     if not path.exists():
-        raise SystemExit(f"{path} 없음 — 먼저 파싱을 실행하세요: uv run python -m docsplit.parse")
+        raise SystemExit(f"{path} 없음 — 먼저 파싱을 실행하세요: uv run python -m docsplit.ingest.parse")
     return [json.loads(l) for l in path.open(encoding="utf-8")]
 
 
