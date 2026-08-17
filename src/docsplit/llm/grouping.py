@@ -16,8 +16,8 @@ import json
 import re
 from collections import Counter
 
-from .rules.cards import SignalCard
-from .llm import LLMClient
+from ..rules.cards import SignalCard
+from .client import LLMClient
 
 
 # ── [3] grouping ──────────────────────────────────────────────

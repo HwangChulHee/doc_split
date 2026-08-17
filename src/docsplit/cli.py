@@ -19,9 +19,9 @@ import pymupdf
 
 from .rules.cards import apply_vlm_extract, build_card
 from .ingest.discover import discover_inputs
-from .grouping import group_pages, order_instances
+from .llm.grouping import group_pages, order_instances
 from .ground_truth import build_ground_truth
-from .llm import DEFAULT_MODEL, LLMClient, LLMDisabled
+from .llm.client import DEFAULT_MODEL, LLMClient, LLMDisabled
 from .ingest.parse import export_inspection, export_jsonl
 from .ingest.pdf_parser import parse_pdf, render_page_png
 from .results import (
