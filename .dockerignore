@@ -1,0 +1,15 @@
+# 이미지에 데이터·비밀·이력을 넣지 않는다.
+data/
+outputs/
+results/
+.env
+.git/
+.gitignore
+docs/
+scripts/
+tests/
+Coding Test/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

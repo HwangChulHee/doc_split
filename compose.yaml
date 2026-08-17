@@ -1,0 +1,12 @@
+services:
+  docsplit:
+    build: .
+    image: docsplit:latest
+    env_file: .env
+    # 호스트 사용자 소유로 산출물을 남긴다 (root 소유 파일이 생기지 않도록).
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    volumes:
+      - ./data:/app/data:ro       # 입력 PDF — 컨테이너가 건드릴 일이 없다
+      - ./outputs:/app/outputs    # 중간 산출물 · LLM 캐시
+      - ./results:/app/results    # 최종 결과
+    command: ["docsplit", "run"]

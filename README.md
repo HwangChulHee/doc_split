@@ -7,7 +7,7 @@
 ## Quick Start
 
 ```bash
-git clone <repo> && cd doc_split
+git clone https://github.com/HwangChulHee/doc_split.git && cd doc_split
 ```
 
 전달받은 PDF들을 `data/` 에 **원본 파일명 그대로** 넣어주세요. 하위 디렉토리를
@@ -33,6 +33,17 @@ uv run docsplit run --no-llm
 
 전체 실행 시 LLM 호출은 패키지 2개 기준 십수 회이고, 비용은 1~2센트 수준입니다
 (gpt-5.4-mini). 호출 결과는 캐싱되므로 재실행 시에는 API 호출이 발생하지 않습니다.
+
+### Docker로 실행하기
+
+uv 없이 Docker만으로도 실행할 수 있습니다:
+
+```bash
+docker compose run --rm docsplit
+```
+
+`data/` 배치와 `.env` 준비는 위와 동일합니다. 결과는 호스트의
+`results/` 에 그대로 생성됩니다.
 
 ## 접근 방식
 
