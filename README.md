@@ -60,10 +60,14 @@ gpt-5.4-mini(규칙 미확정 페이지 분류·비전·그룹핑) · Docker Com
 
 | 산출 경로 | 내용 |
 |---|---|
-| `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, 분류 색띠 그림, (정답이 있는 경우) 검증 리포트 |
+| `results/package_<label>/` | **직접 실행하신 결과** — 분류 CSV, 문서 구성 JSON, 요약, 분류 색띠 그림, (정답이 있는 경우) 검증 리포트. 실행마다 덮어써지므로 커밋하지 않음 |
+| `reference_run/package_<label>/` | **커밋된 참조 실행본** — 위와 같은 구성. 아래 README가 인용하는 수치의 출처이며 고정입니다 |
 | `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보 포함되어 커밋하지 않음 |
 
-**커밋된 `results/`와 대조하실 경우**: 캐시가 없는 새 clone에서 다시 돌리면
+실행하시면 `results/`에 새로 생기고, 커밋된 `reference_run/`은 그대로 남습니다.
+두 디렉토리를 나란히 두고 비교하실 수 있습니다.
+
+**`reference_run/`과 대조하실 경우**: 캐시가 없는 새 clone에서 다시 돌리면
 83페이지의 **유형 판정은 그대로 재현**되지만, 모델이 문장으로 답하는 부분은 실행마다 달라질 수
 있습니다 — 하위군 이름 4건(LLM 1 · VLM 3)과 그룹핑 instance 구성이 그렇습니다.
 규칙 판정은 결정론적이고, 변동은 LLM에 맡긴 지점에만 생깁니다.
@@ -265,7 +269,7 @@ data/*.pdf
 ### 판정 예시
 
 쉬운 경우부터 어려운 경우 순으로, 실제 페이지 4장이 흘러간 경로입니다.
-(페이지 번호는 PDF 뷰어 기준 1부터. `results/*/classification.csv`의 page
+(페이지 번호는 PDF 뷰어 기준 1부터. `reference_run/*/classification.csv`의 page
 열은 0부터 세므로 1 차이가 납니다)
 
 **① URLA 페이지 (package_01·02의 URLA 전 21장) — 규칙으로 바로 확정** `[2]→[3] 끝`
@@ -304,7 +308,7 @@ package_01은 정답 원본 PDF 4종이 제공되어, 파이프라인이 정답�
 정답표를 구성하고(`ground_truth.py` — 원본 PDF를 보는 유일한 모듈), 분류
 결과와 대조해 accuracy와 macro F1을 산출합니다. 이 정답은 검산에만 쓰이고
 분류 판정에는 개입하지 않습니다. 상세 채점표는
-[`results/package_01/evaluation.md`](results/package_01/evaluation.md)에
+[`reference_run/package_01/evaluation.md`](reference_run/package_01/evaluation.md)에
 있습니다.
 
 ### package_01 — 채점 결과
@@ -314,14 +318,14 @@ package_01은 정답 원본 PDF 4종이 제공되어, 파이프라인이 정답�
 | 단계 | 성적 | 내용 |
 |---|---|---|
 | 페이지 분류 | **38/39 (97.4%)** | 오분류 0장, 미확정 1장 |
-| 그룹핑 | 3/3 문서 | URLA 11장 · CREDIT 18장 · TITLE 8장 모두 정확히 묶임. INCOME 1장은 미배정 |
-| 순서 복원 | 2/3 문서 | URLA·TITLE **완전 복원**. CREDIT은 **실패** |
+| 그룹핑 | 3/4 문서 | CREDIT 18장 · TITLE 8장 · INCOME 1장은 정확히 묶임. URLA 11장은 4장·7장 두 instance로 **분할됨** |
+| 순서 복원 | 4/5 instance | URLA 2건 · TITLE · INCOME **완전 복원**. CREDIT은 **실패** |
 
 판정 경로는 규칙 36장(92%) / LLM 2장 / 미확정 1장입니다.
 
 셔플된 페이지 순서 그대로의 유형 분포입니다.
 
-![package_01 분류 결과](results/package_01/classification_map.png)
+![package_01 분류 결과](reference_run/package_01/classification_map.png)
 
 **실패 1 — 분류 미확정: shuffled PDF 8페이지**
 
@@ -343,7 +347,7 @@ plat map(지적도)이 제거된 자리 페이지라 판단할 텍스트가 물�
 
 정답이 제공되지 않는 패키지라 최종 판정을 그대로 제출합니다. 페이지 번호는
 PDF 뷰어 기준(1부터)입니다. 페이지별 상세는
-[`results/package_02/`](results/package_02/)의 `classification.csv`(분류)와
+[`reference_run/package_02/`](reference_run/package_02/)의 `classification.csv`(분류)와
 `documents.json`(그룹핑·순서)에 있습니다.
 
 **1. 페이지 분류** — 44장 중 43장 판정, 1장 미확정
@@ -360,26 +364,26 @@ PDF 뷰어 기준(1부터)입니다. 페이지별 상세는
 
 셔플된 페이지 순서 그대로의 유형 분포입니다.
 
-![package_02 분류 결과](results/package_02/classification_map.png)
+![package_02 분류 결과](reference_run/package_02/classification_map.png)
 
-**2. 그룹핑** — 5개 문서 instance, 귀속 미정 2장
+**2. 그룹핑** — 5개 문서 instance, 귀속 미정 1장
 
 | instance | 페이지 수 | 비고 |
 |---|---|---|
 | urla_1 | 10 | |
 | credit_1 | 15 | |
-| title_1 | 10 | 거의 동일한 두 벌 포함 — 감지는 했으나 가를 근거 부족 (한계 3번) |
+| title_1 | 11 | 거의 동일한 두 벌 포함 — 감지는 했으나 가를 근거 부족 (한계 3번) |
 | title_2 | 3 | title_1과 같은 거래의 다른 출력본 |
 | income_1 | 3 | |
 
-TITLE 30p와 INCOME 36p는 붙일 instance의 근거가 없어 배정하지 않았습니다.
+INCOME 36p는 붙일 instance의 근거가 없어 배정하지 않았습니다.
 
 **3. 순서 복원**
 
 | instance | 복원 경로 | 복원된 순서 | 미해결 |
 |---|---|---|---|
 | urla_1 | 페이지 마커 | 20 35 13 16 43 18 23 29 25 37 | — |
-| title_1 | 구조 순서 | 3 17 1 42 9 33 15 22 | 7, 5 |
+| title_1 | 구조 순서 | 3 17 30 1 42 9 33 15 22 | 7, 5 |
 | title_2 | 구조 순서 | 11 26 40 | — |
 | credit_1 | 구조 순서 | 6 8 14 21 28 34 38 41 44 2 19 24 | 4, 10, 32 |
 | income_1 | — | 순서 근거 없음 | 12, 27, 31 |
@@ -411,8 +415,8 @@ TITLE 30p와 INCOME 36p는 붙일 instance의 근거가 없어 배정하지 않�
    없습니다. 벤더 가이드의 섹션 나열 순서로 각 페이지를 섹션에 귀속시키는
    것이 개선 방향입니다.
 3. **같은 문서가 여러 번 출력되어 섞여 있으면 이를 분리하지 못합니다.**
-   `02_990367284_shuffled.pdf`의 Title Commitment 10장(1, 3, 5, 7, 9, 15,
-   17, 22, 33, 42페이지)은 거의 동일한 출력본 두 개가 섞인 상태인데, 양쪽의
+   `02_990367284_shuffled.pdf`의 Title Commitment 11장(1, 3, 5, 7, 9, 15,
+   17, 22, 30, 33, 42페이지)은 거의 동일한 출력본 두 개가 섞인 상태인데, 양쪽의
    신호 카드가 사실상 같아(값 차이는 보험금액 한 줄) 어느 페이지가 어느
    출력본인지 정하지 못했습니다. 페이지 마커 중복으로 출력본이 여러 개라는
    것까지는 감지하므로, 중복이 감지되면 해당 페이지 원문을 그룹핑 입력에
@@ -487,6 +491,7 @@ src/docsplit/
     └── pipeline.py      #   유형별로 돌리던 검증 파이프라인
                          #   (urla_/credit_/title_/income_pipeline.py 가 얇은 진입점)
 
+reference_run/       # 커밋된 참조 실행본 — README가 인용하는 수치의 출처 (고정)
 docs/                # 도메인 지식 · 유형별 설계 기준서 · 준거 대조 분석
 data/reference/      # 확보한 준거 문서 (커밋 가부는 출처별로 다름 — SOURCES.md 참조)
 scripts/             # 준거 대조 관찰 · 결과 시각화 · 병렬 벤치마크 (실행 경로 아님)

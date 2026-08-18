@@ -87,7 +87,8 @@ def read_cells(csv_path: Path) -> list[tuple[int, str]]:
     return cells
 
 
-def draw(label: str, cells: list[tuple[int, str]], out_path: Path) -> None:
+def draw(label: str, cells: list[tuple[int, str]], out_path: Path,
+         src_label: str) -> None:
     counts = {name: 0 for name in TYPE_COLORS}
     for _, category in cells:
         counts[category] += 1
@@ -132,7 +133,7 @@ def draw(label: str, cells: list[tuple[int, str]], out_path: Path) -> None:
         legend.text(x + 0.17, 0.51, entry, ha="left", va="center",
                     fontsize=8, color=INK_SECONDARY)
         x += 0.17 + len(entry) * 0.055 + 0.30  # swatch + text + breathing room
-    legend.text(band_w, 0.51, f"results/package_{label}/classification.csv",
+    legend.text(band_w, 0.51, src_label,
                 ha="right", va="center", fontsize=7, color=INK_MUTED)
 
     fig.savefig(out_path, dpi=DPI, facecolor=SURFACE)
@@ -156,7 +157,8 @@ def main() -> None:
         if not csv_path.exists():
             raise SystemExit(f"{csv_path} 가 없다 — 먼저 docsplit run")
         label = package_dir.name.removeprefix("package_")
-        draw(label, read_cells(csv_path), package_dir / "classification_map.png")
+        draw(label, read_cells(csv_path), package_dir / "classification_map.png",
+             csv_path.as_posix())
 
 
 if __name__ == "__main__":
