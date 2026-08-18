@@ -36,11 +36,17 @@ def write_documents_json(groupings: dict, orderings: dict, path: Path) -> None:
         }
         for inst in g.get("instances", []):
             o = order_by_id.get(inst.get("instance_id"), {})
+            ordered = o.get("ordered_pages", [])
             entry = {
                 "type": type_name,
                 "instance_id": inst.get("instance_id"),
                 "pages": sorted(inst.get("pages", [])),
-                "ordered_pages": o.get("ordered_pages", []),
+                "ordered_pages": ordered,
+                # 시작·끝은 순서를 복원한 경우에만 정해진다. 순서 근거가 없으면
+                # 어느 장이 첫 장인지 말할 수 없으므로 null로 남긴다 — 0번째
+                # 페이지를 임의로 시작이라 부르지 않는다.
+                "start_page": ordered[0] if ordered else None,
+                "end_page": ordered[-1] if ordered else None,
                 "ordering_method": o.get("method"),
                 "ordering_unresolved": o.get("unresolved", []),
             }

@@ -34,6 +34,8 @@
         18,
         23
       ],
+      "start_page": 5,
+      "end_page": 23,
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
         3,
@@ -50,6 +52,8 @@
         30
       ],
       "ordered_pages": [],
+      "start_page": null,
+      "end_page": null,
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
         11,
@@ -84,6 +88,8 @@
         14,
         21
       ],
+      "start_page": 2,
+      "end_page": 21,
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
         4,
@@ -111,6 +117,8 @@
         25,
         39
       ],
+      "start_page": 10,
+      "end_page": 39,
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [],
       "related_to": {
@@ -149,6 +157,8 @@
         24,
         36
       ],
+      "start_page": 19,
+      "end_page": 36,
       "ordering_method": "CODE_A_PAGE_MARKER",
       "ordering_unresolved": []
     }
