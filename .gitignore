@@ -1,7 +1,10 @@
 # 입력 데이터 — 커밋 금지 (data/reference/ 공개 표준 양식만 예외)
 data/*
 !data/reference/
-outputs/
+# outputs/ 디렉토리는 유지하되 내용물은 커밋하지 않는다 (개인정보 포함).
+# 디렉토리가 없으면 docker 바인드 마운트가 root 소유로 만들어 버린다.
+outputs/*
+!outputs/.gitkeep
 
 # 저장소 어디에 있든 PDF는 커밋하지 않는다 (공개 표준 양식만 예외)
 *.pdf

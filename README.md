@@ -419,6 +419,8 @@ Python이나 uv를 설치하지 않아도 되므로 Docker 실행을 권장합�
 docker compose run --rm docsplit
 ```
 
+호스트 계정의 uid/gid가 1000이 아니면 `DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose run --rm docsplit`으로 실행하세요.
+
 `results/`와 `outputs/`는 호스트 디렉토리에 그대로 생성됩니다. 이미지에는 코드·정책·프롬프트만 포함되고, 문서 PDF는 실행 시점에 읽기 전용으로 마운트됩니다.
 
 API 키 없이 규칙 판정까지만 실행:
