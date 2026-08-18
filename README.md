@@ -6,16 +6,72 @@
 
 ## 목차
 
+- [실행 방법](#실행-방법)
 - [접근 방식](#접근-방식)
 - [처리 흐름](#처리-흐름)
 - [결과](#결과)
 - [알려진 한계와 개선 방향](#알려진-한계와-개선-방향)
-- [실행 방법](#실행-방법)
 - [프로젝트 구조](#프로젝트-구조)
+
+## 실행 방법
+
+```bash
+git clone https://github.com/HwangChulHee/doc_split.git && cd doc_split
+```
+
+1. **데이터 배치**: 전달받은 PDF를 `data/`에 원본 파일명 그대로 넣습니다. (하위 디렉토리를 포함해 넣어도 재귀 탐색 가능)
+2. **API 키 설정**:
+```bash
+cp .env.example .env      # OPENAI_API_KEY 입력
+```
+
+### Docker (권장)
+
+Python이나 uv를 설치하지 않아도 되므로 Docker 실행을 권장합니다.
+
+```bash
+docker compose run --rm docsplit
+```
+
+호스트 계정의 uid/gid가 1000이 아니면 `DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose run --rm docsplit`으로 실행하세요.
+
+`results/`와 `outputs/`는 호스트 디렉토리에 그대로 생성됩니다. 이미지에는 코드·정책·프롬프트만 포함되고, 문서 PDF는 실행 시점에 읽기 전용으로 마운트됩니다.
+
+API 키 없이 규칙 판정까지만 실행:
+```bash
+docker compose run --rm docsplit docsplit run --no-llm
+```
+
+### uv (로컬 Python 3.12 · uv 환경)
+
+```bash
+uv run docsplit run
+uv run docsplit run --no-llm      # API 키 없이 규칙 판정까지만
+uv run pytest                     # 판정·정렬·회전 판별 테스트 (42건)
+```
+
+### 사용 기술
+
+Python 3.12 · uv · PyMuPDF(텍스트 추출·렌더링) · OpenAI
+gpt-5.4-mini(규칙 미확정 페이지 분류·비전·그룹핑) · Docker Compose · pytest.
+판정 기술의 선택 근거는 [접근 방식](#접근-방식)에 있습니다.
+
+### 산출물
+
+| 산출 경로 | 내용 |
+|---|---|
+| `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, 분류 색띠 그림, (정답이 있는 경우) 검증 리포트 |
+| `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보 포함되어 커밋하지 않음 |
+
+**커밋된 `results/`와 대조하실 경우**: 캐시가 없는 새 clone에서 다시 돌리면
+83페이지의 **유형 판정은 그대로 재현**되지만, 모델이 문장으로 답하는 부분은 실행마다 달라질 수
+있습니다 — 하위군 이름 4건(LLM 1 · VLM 3)과 그룹핑 instance 구성이 그렇습니다.
+규칙 판정은 결정론적이고, 변동은 LLM에 맡긴 지점에만 생깁니다.
+
 
 ## 접근 방식
 
-이 섹션은 네 가지를 순서대로 답합니다 — 문제를 어떻게 나눴는가(문제 분해),
+이 섹션은 4가지 부분으로 이루어져 있습니다.  — 문제를 어떻게 나눴는가(문제 분해),
 무엇으로 판정하는가(판정 기술), 규칙은 어디서 왔는가(규칙을 만든 과정 ·
 유형별 설계), LLM은 어디에 쓰는가(LLM 사용 지점).
 
@@ -29,11 +85,6 @@
    근거는 개별 문서에 적힌 값입니다 (차주 이름, 대출번호, 페이지 마커).
 3. **순서 복원** — 각 문서 안에서 원래 페이지 순서를 되돌립니다.
    근거는 문서의 구조입니다 (페이지 마커, 표준 섹션 순서).
-
-유형 신호와 개별 문서 신호는 역할이 달라서 단계 간에 섞어 쓰지 않았습니다.
-
-그룹핑을 따로 둔 건 같은 유형 문서가 한 패키지에 여러 벌 있을 수 있어서입니다.
-실제로 package_02에는 같은 거래의 Title Commitment 출력본이 세 벌 섞여 있었습니다.
 
 ### 판정 기술 — 규칙 → LLM → 미확정
 
@@ -70,7 +121,6 @@
 | 단순 키워드 빈도 매칭 | 소득 어휘(`Income`, `Employer`)가 정작 URLA 신청서에 더 많이 등장함을 측정으로 확인 — 어휘 빈도가 아니라 문구의 출처(표준이 강제하는지)로 판정 |
 | 전 페이지 LLM 분류 | 규칙만으로 대부분 확정되는 상황에서 전량 LLM은 비용·재현성·설명력 모두 불리 |
 | OCR 전면 도입 | 83페이지 중 텍스트 레이어 없는 페이지는 3장뿐 — 그 3장은 OCR 대신 VLM 비전 판정으로 처리 |
-| 임의 가중치 점수제 | 왜 그 숫자인지 답할 수 없는 값은 배제 |
 | 페이지 번호 기반 분류 | 표준 blank에 페이지 번호 부재를 확인. 렌더링 산물은 분류가 아니라 그룹핑 신호로 사용 |
 
 ### 규칙을 만든 과정
@@ -398,65 +448,6 @@ TITLE 30p와 INCOME 36p는 붙일 instance의 근거가 없어 배정하지 않�
 [^bench]: 측정 환경은 Intel i5-14500(10코어/20스레드)입니다. 코어 수가 다르면
     절대값도 달라지므로, 위 수치는 이 환경의 실측이고 심사 환경의 값은
     스크립트로 직접 확인할 수 있습니다.
-
-## 실행 방법
-
-```bash
-git clone https://github.com/HwangChulHee/doc_split.git && cd doc_split
-```
-
-1. **데이터 배치**: 전달받은 PDF를 `data/`에 원본 파일명 그대로 넣습니다. (하위 디렉토리를 포함해 넣어도 재귀 탐색 가능)
-2. **API 키 설정**:
-```bash
-cp .env.example .env      # OPENAI_API_KEY 입력
-```
-
-### Docker (권장)
-
-Python이나 uv를 설치하지 않아도 되므로 Docker 실행을 권장합니다.
-
-```bash
-docker compose run --rm docsplit
-```
-
-호스트 계정의 uid/gid가 1000이 아니면 `DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose run --rm docsplit`으로 실행하세요.
-
-`results/`와 `outputs/`는 호스트 디렉토리에 그대로 생성됩니다. 이미지에는 코드·정책·프롬프트만 포함되고, 문서 PDF는 실행 시점에 읽기 전용으로 마운트됩니다.
-
-API 키 없이 규칙 판정까지만 실행:
-```bash
-docker compose run --rm docsplit docsplit run --no-llm
-```
-
-### uv (로컬 Python 3.12 · uv 환경)
-
-```bash
-uv run docsplit run
-uv run docsplit run --no-llm      # API 키 없이 규칙 판정까지만
-uv run pytest                     # 판정·정렬·회전 판별 테스트 (42건)
-```
-
-### 사용 기술
-
-Python 3.12 · uv · PyMuPDF(텍스트 추출·렌더링) · OpenAI
-gpt-5.4-mini(규칙 미확정 페이지 분류·비전·그룹핑) · Docker Compose · pytest.
-판정 기술의 선택 근거는 [접근 방식](#접근-방식)에 있습니다.
-
-### 산출물
-
-| 산출 경로 | 내용 |
-|---|---|
-| `results/package_<label>/` | 최종 결과 — 분류 CSV, 문서 구성 JSON, 요약, 분류 색띠 그림, (정답이 있는 경우) 검증 리포트 |
-| `outputs/` | 중간 산출물 — 페이지 원문, 신호 카드, LLM 캐시. 개인정보 포함되어 커밋하지 않음 |
-
-호출 결과는 `outputs/llm_cache/`에 캐싱되어 재실행 시 API 호출 없음 — 두 실행
-방식이 같은 캐시를 공유함. 비용 실측치는 [결과 > 비용](#비용) 참조.
-
-**커밋된 `results/`와 대조하실 경우**: 캐시가 없는 새 clone에서 다시 돌리면
-83페이지의 **유형 판정은 그대로 재현**되지만(리허설에서 page→type 전량 일치,
-accuracy 0.974 동일), 모델이 문장으로 답하는 부분은 실행마다 달라질 수
-있습니다 — 하위군 이름 4건(LLM 1 · VLM 3)과 그룹핑 instance 구성이 그렇습니다.
-규칙 판정은 결정론적이고, 변동은 LLM에 맡긴 지점에만 생깁니다.
 
 ## 프로젝트 구조
 

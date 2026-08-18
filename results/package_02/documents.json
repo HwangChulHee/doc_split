@@ -69,12 +69,14 @@
         14,
         16,
         21,
+        29,
         32,
         41
       ],
       "ordered_pages": [
         2,
         16,
+        29,
         0,
         41,
         8,
@@ -84,14 +86,15 @@
       ],
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
-        6,
-        4
+        4,
+        6
       ],
       "related_to": {
         "instance_id": "title_2",
         "relation": "같은 거래의 다른 출력본으로 보임",
         "differs_in": [
-          "same vendor and same form code, but page-marker sets overlap with a different 4-page ALTA output; this instance is the 5-page set (y=5)"
+          "공통 인쇄물/보조 페이지 구성",
+          "페이지별 원문 배치"
         ]
       }
     },
@@ -114,7 +117,8 @@
         "instance_id": "title_1",
         "relation": "같은 거래의 다른 출력본으로 보임",
         "differs_in": [
-          "same vendor and same form code, but page-marker denominator is 4 instead of 5"
+          "총 장수 마커가 4장(4 of 4) vs 5장(5 of 5)",
+          "VLM 추출 페이지 구성"
         ]
       }
     },
@@ -152,9 +156,6 @@
   "unresolved_pages": {
     "INCOME_DOC": [
       35
-    ],
-    "TITLE_REPORT": [
-      29
     ]
   }
 }

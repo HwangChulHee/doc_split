@@ -36,8 +36,8 @@
         32,
         38,
         24,
-        12,
-        2
+        2,
+        12
       ],
       "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": [
@@ -46,6 +46,18 @@
         16,
         22
       ]
+    },
+    {
+      "type": "INCOME_DOC",
+      "instance_id": "income_1",
+      "pages": [
+        35
+      ],
+      "ordered_pages": [
+        35
+      ],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": []
     },
     {
       "type": "TITLE_REPORT",
@@ -71,44 +83,57 @@
         27
       ],
       "ordering_method": "CODE_A_PAGE_MARKER",
-      "ordering_unresolved": []
+      "ordering_unresolved": [],
+      "related_to": {
+        "instance_id": "title_2",
+        "relation": "같은 거래의 다른 출력본으로 보임",
+        "differs_in": [
+          "본 데이터에서는 별도 마커 세트 중복이 확인되지 않아 차이 항목을 특정할 수 없음"
+        ]
+      }
     },
     {
       "type": "URLA_1003",
       "instance_id": "urla_1",
       "pages": [
         1,
-        3,
         5,
-        9,
-        13,
-        19,
         23,
-        25,
-        29,
-        34,
-        37
+        34
       ],
       "ordered_pages": [
         5,
+        23,
+        34,
+        1
+      ],
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
+      "ordering_unresolved": []
+    },
+    {
+      "type": "URLA_1003",
+      "instance_id": "urla_2",
+      "pages": [
+        3,
+        9,
+        13,
+        19,
+        25,
+        29,
+        37
+      ],
+      "ordered_pages": [
         37,
         9,
         19,
         3,
         13,
         29,
-        23,
-        34,
-        1,
         25
       ],
-      "ordering_method": "CODE_A_PAGE_MARKER",
+      "ordering_method": "CODE_B_FALLBACK_ORDER",
       "ordering_unresolved": []
     }
   ],
-  "unresolved_pages": {
-    "INCOME_DOC": [
-      35
-    ]
-  }
+  "unresolved_pages": {}
 }

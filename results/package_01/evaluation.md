@@ -34,11 +34,12 @@
 - `credit_1`: 18장, 정렬 CODE_B_FALLBACK_ORDER → ❌ 순서 불일치, 미해결 [6, 10, 16, 22]
 
 ### INCOME_DOC
-- 그룹핑 미배정: [35]
+- `income_1`: 1장, 정렬 CODE_B_FALLBACK_ORDER → ✅ 순서 일치
 
 ### TITLE_REPORT
 - `title_1`: 8장, 정렬 CODE_A_PAGE_MARKER → ✅ 순서 일치
 
 ### URLA_1003
-- `urla_1`: 11장, 정렬 CODE_A_PAGE_MARKER → ✅ 순서 일치
+- `urla_1`: 4장, 정렬 CODE_B_FALLBACK_ORDER → ✅ 순서 일치
+- `urla_2`: 7장, 정렬 CODE_B_FALLBACK_ORDER → ✅ 순서 일치
 

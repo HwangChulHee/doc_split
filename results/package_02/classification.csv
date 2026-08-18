@@ -9,7 +9,7 @@ page,page_display,type,subtype,grade,rule_grade,decided_by
 7,8,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 8,9,TITLE_REPORT,schedule_b1,RULE_HIGH,RULE_HIGH,rule
 9,10,CREDIT_REPORT,,RULE_HIGH,RULE_HIGH,rule
-10,11,TITLE_REPORT,ALTA Commitment for Title Insurance,VLM,DEFER_VLM,vlm
+10,11,TITLE_REPORT,Title Commitment / ALTA Commitment for Title Insurance,VLM,DEFER_VLM,vlm
 11,12,INCOME_DOC,,RULE_HIGH,RULE_HIGH,rule
 12,13,URLA_1003,main,RULE_HIGH,RULE_HIGH,rule
 13,14,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
@@ -38,7 +38,7 @@ page,page_display,type,subtype,grade,rule_grade,decided_by
 36,37,URLA_1003,lender_loan_information,RULE_HIGH,RULE_HIGH,rule
 37,38,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 38,39,,,UNRESOLVED,DEFER_LLM,deferred
-39,40,TITLE_REPORT,Title Commitment / ALTA Commitment for Title Insurance,VLM,DEFER_VLM,vlm
+39,40,TITLE_REPORT,Commitment for Title Insurance,VLM,DEFER_VLM,vlm
 40,41,CREDIT_REPORT,main_report,RULE_HIGH,RULE_HIGH,rule
 41,42,TITLE_REPORT,legal_description,RULE_HIGH,RULE_HIGH,rule
 42,43,URLA_1003,main,RULE_HIGH,RULE_HIGH,rule
